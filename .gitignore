@@ -1,0 +1,8 @@
+# Machine-specific — never commit
+settings.local.json
+factory/local-policy.md
+
+# OS / editor noise
+.DS_Store
+.idea/
+*.swp

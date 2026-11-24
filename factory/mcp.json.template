@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "continuum": {
+      "type": "http",
+      "url": "http://localhost:3002/api-server/mcp"
+    },
+    "continuum-mcp": {
+      "type": "http",
+      "url": "http://localhost:3002/api-server/mcp"
+    }
+  }
+}

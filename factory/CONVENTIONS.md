@@ -1,0 +1,112 @@
+# Continuum Software Factory — shared contract
+
+Every factory agent reads this file first. It is the single source for the artifact layout, the repo map, the
+environment rules and the house rules; agent files only add their role-specific instructions.
+
+**Workspace root** = the directory that contains `.claude/` (two levels above this file). All repos sit side by side
+in it; it is not itself a git repo. Every path below is relative to it — never assume an absolute path, user name or
+OS. The factory must run unchanged on any machine.
+
+## Environment first (every agent, every run)
+
+1. Read `.factory/environment.md` (written by `.claude/factory/scripts/doctor.sh`). If it is missing or older than
+   this session's work, run `.claude/factory/scripts/doctor.sh --quiet` and read it.
+2. Its **Local policy** section is binding and overrides the defaults below (e.g. "workbench builds forbidden").
+3. If something you need is missing, follow `.claude/factory/SETUP.md`:
+   - a repo is ABSENT → `.claude/factory/scripts/bootstrap.sh <repo>`;
+   - a build cache / browser driver is missing and the network allows it (see the profile's Network section, and the
+     local policy does not forbid it) → run the matching SETUP.md step, then re-run the doctor;
+   - a **system tool** is missing (JDK, Node, Docker, k6, git-lfs) or a step needs sudo/credentials/GUI → do not
+     install it; report `ENV: <what> missing — SETUP.md §<n>` so the orchestrator asks the user.
+4. Never let a missing tool turn into a false PASS: the affected checks are `NOT VERIFIED: <reason>`.
+
+## Pipeline
+
+```
+/factory <requirement>
+  1. product-manager      → 01-requirements.md   (feasibility + open questions; user answers loop back)
+     ── GATE: user signs off the requirements
+  2. planner              → 02-plan.md           (BE/FE tasks, dependencies, acceptance criteria)
+     ── GATE: user approves the plan
+  3. backend-developer    → 03-backend-dev.md    ┐ parallel; FE tasks that depend on a BE task
+     frontend-developer   → 04-frontend-dev.md   ┘ start only after that BE task is DONE
+  4. backend-system-tester→ 05-backend-system-tests.md   ┐
+     frontend-tester      → 06-frontend-browser-tests.md │ parallel; failures and blocking
+     backend-expert       → 07-backend-review.md         │ findings go back to the developers
+     frontend-expert      → 08-frontend-review.md        ┘ (max 3 fix rounds, then the user decides)
+  5. reporter             → REPORT.md
+```
+
+The orchestrator is the `/factory` skill running in the main conversation. Subagents cannot ask the user questions or
+start other agents: anything that needs the user goes back to the orchestrator in your final message.
+
+## Artifact layout
+
+All hand-off documents for one feature live in `.factory/<feature-slug>/` at the workspace root (`.factory/` also
+holds `environment.md` and `tools/`; it is local working state, not committed anywhere):
+
+| File | Owner | Content |
+|------|-------|---------|
+| `state.md` | orchestrator | phase, task status table, fix-round counters, repo baselines |
+| `01-requirements.md` | product-manager | problem, scope, feasibility, risks, decisions, open questions |
+| `02-plan.md` | planner | tasks `BE-n` / `FE-n`, dependencies, acceptance criteria `AC-n` |
+| `03-backend-dev.md` | backend-developer | per round: tasks done, files changed, unit tests, commands + results |
+| `04-frontend-dev.md` | frontend-developer | same, for frontend |
+| `05-backend-system-tests.md` | backend-system-tester | AC → test mapping, how the stack ran, results |
+| `06-frontend-browser-tests.md` | frontend-tester | AC → scenario mapping, results, `screenshots/` |
+| `07-backend-review.md` | backend-expert | findings by severity, verdict |
+| `08-frontend-review.md` | frontend-expert | findings by severity, verdict |
+| `REPORT.md` | reporter | feature overview and what changed |
+
+Rules for artifacts:
+- Only write your own file(s). Append a new `## Round <n>` section on re-runs instead of rewriting history.
+- Refer to tasks and criteria by ID (`BE-2`, `FE-1`, `AC-4`). Refer to code as `repo/path/File.kt:line`.
+- Write facts you verified. Mark anything you could not verify as `NOT VERIFIED: <reason>` — never imply it passed.
+
+## Repo map
+
+The workspace holds several independent git repos (no root repo). URLs and which ones are required are in
+`.claude/factory/repos.txt`; clone missing ones with `.claude/factory/scripts/bootstrap.sh`.
+
+| Area | Repo(s) | Stack | Verify with |
+|------|---------|-------|-------------|
+| Backend platform | `continuum-platform-core` | Kotlin 2.2, Spring Boot 4, Temporal, Kafka, Gradle, JDK 21 | `./gradlew :<module>:test` |
+| Backend nodes | `continuum-feature-{base,ai,cheminformatics,knime,template}` | Kotlin `@ContinuumNode` workers | `./gradlew :<module>:test` (needs platform libs in `~/.m2` when on an unreleased version) |
+| Frontend | `continuum-workbench` | Theia, React 18, TS 5, React Flow, JSONForms, Yarn 1.22 | `yarn workspace @continuum/workflow-editor-extension test`, `tsc --noEmit` (both need `node_modules`) |
+| Frontend (small) | credentials-server embedded UI in `continuum-platform-core`, `continuum-jsonforms-playground`, `continuum-website` | React/Vite | as available |
+| System tests | `continuum-system-tests` | k6 (API), browser suites under `suites/ui/` | `npm test`, `npm run check`, k6 against a live stack |
+| Docs | `continuum-docs` | Docusaurus | — |
+| Deploy | `continuum-charts`, `continuum-local-setup` | Helm, docker-compose | — |
+
+Frontend ↔ backend contract: the workbench calls the platform only through typescript-axios clients in
+`continuum-workbench/workflow-editor-extension/src/generated/`, generated from the OpenAPI specs committed in
+`continuum-platform-core/docs/api/`. A frontend task that needs a new or changed endpoint therefore depends on the
+backend task that updates the committed spec.
+
+## House rules (binding for every agent)
+
+1. **DOX first.** Before editing any repo, read its root `AGENTS.md` and every `AGENTS.md` on the path to the files you
+   touch. They override anything here for local details. After editing, do the DOX pass those files describe.
+2. **Release notes with every change**: `release_notes/RELEASE_NOTES_v<version being prepared>.md` in that repo
+   (`platformVersion` in `gradle.properties` for core, root `package.json` `version` for the workbench). Never edit a
+   released version's file (a `release/<version>` tag exists) — ask via the orchestrator instead.
+3. **README with every module change**: the module's own README, otherwise the repo root README.
+4. **OpenAPI with every API change** in `continuum-platform-core`: inventory, `docs/api/CONVENTIONS.md`, annotations,
+   regenerated committed spec, `OpenApiSpecTest` — per "API Documentation Contract" in its `AGENTS.md`.
+5. **Kotlin reads descriptively**: named arguments at call sites (constructors, data classes, 2+ argument functions),
+   tests included; descriptive names and explanatory locals over dense one-liners.
+6. **Network-dependent builds follow the environment profile.** Run `yarn install`/`yarn build` in
+   `continuum-workbench` only when `node_modules` is absent, the npm/yarn registry is reachable and the local policy
+   does not forbid it. A `package.json` dependency change needs a matching `yarn.lock` (CI runs `--frozen-lockfile`):
+   if you cannot regenerate it, do not change the dependency — report it as a user action.
+7. **Gradle**: when the profile shows a populated Gradle cache, prefer `./gradlew --offline ...`; drop `--offline`
+   only when Maven Central is reachable and a dependency is genuinely missing (and the local policy allows it).
+8. **No git writes**: never commit, push, reset, stash, rebase or switch branches. The orchestrator handles branches only
+   with the user's consent. Use `git diff` / `git status` freely. `bootstrap.sh` cloning a missing repo is allowed.
+9. **No destructive shell**: no `rm -rf`, no `docker compose down -v` / `make down` on a stack you did not start; use
+   fresh temp dirs (`mktemp -d`) instead of cleaning old ones. Stop processes you started by PID.
+10. **Tool refusals**: if the harness refuses a command (permission or auto-mode block), do not retry variants of it —
+    report the step as not run, with the command, so the user can run it.
+11. **Scope discipline**: implement exactly the approved plan. A needed change outside the plan goes in your report as
+    `SCOPE: <what and why>` for the orchestrator to raise, unless it is a trivial, obviously required adjustment
+    (then do it and list it).

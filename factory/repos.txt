@@ -1,0 +1,16 @@
+# Continuum workspace repositories: <directory> <git-url> <role> <required: yes|no>
+# bootstrap.sh clones every missing directory next to .claude/ (the workspace root).
+# Required repos are needed by the factory pipeline itself; the others only when a feature touches them.
+continuum-platform-core            https://github.com/projectcontinuum-org/continuum-platform-core.git            backend-platform  yes
+continuum-workbench                https://github.com/projectcontinuum/continuum-workbench.git                    frontend          yes
+continuum-system-tests             https://github.com/projectcontinuum-org/continuum-system-tests.git             system-tests      yes
+continuum-feature-base             https://github.com/projectcontinuum-org/continuum-feature-base.git             backend-nodes     yes
+continuum-feature-template         https://github.com/projectcontinuum-org/continuum-feature-template.git         backend-nodes     no
+continuum-feature-ai               https://github.com/projectcontinuum-org/continuum-feature-ai.git               backend-nodes     no
+continuum-feature-cheminformatics  https://github.com/projectcontinuum-org/continuum-feature-cheminformatics.git  backend-nodes     no
+continuum-feature-knime            https://github.com/projectcontinuum-org/continuum-feature-knime.git            backend-nodes     no
+continuum-local-setup              https://github.com/projectcontinuum/continuum-local-setup.git                  deploy            no
+continuum-charts                   https://github.com/projectcontinuum-org/continuum-charts.git                   deploy            no
+continuum-docs                     https://github.com/projectcontinuum-org/continuum-docs.git                     docs              no
+continuum-jsonforms-playground     https://github.com/projectcontinuum/continuum-jsonform-playground.git           frontend-small    no
+continuum-website                  https://github.com/projectcontinuum-org/continuum-website.git                  frontend-small    no
