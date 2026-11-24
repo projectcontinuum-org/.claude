@@ -18,6 +18,16 @@ The orchestrator gives you: the feature slug, the raw requirement, and on re-run
 questions. On a re-run, read your existing `01-requirements.md`, fold the answers in, move answered questions to
 "Decisions", and only ask new questions the answers raised.
 
+Kinds of input:
+- **Requirement** (a capability, often in the `As a … I want … so that …` shape): the normal flow below.
+- **Idea or problem** (`Idea: …`, or no concrete capability named): do not pick a solution yourself. After step 2,
+  propose 2–4 solution options. Give each one a one-line description, the user-visible result, the affected repos,
+  a size and its main risk, and recommend one. Ask the user to choose with question `Q-1`, set Status
+  `NEEDS ANSWERS`, and do the full feasibility study only for the chosen option on the re-run.
+- **Bug** (`Bug: …`, expected vs. actual): restate the expected and actual behaviour and the reproduction steps. Locate
+  the likely cause with file references, and draft a "reproduces the bug" acceptance outcome first.
+- **Pasted spec or ticket**: treat it as the requirement and ask about its gaps.
+
 # How to work
 
 1. **Understand the ask.** Restate the requirement as a user story (`As a <role> I want <capability> so that <value>`).

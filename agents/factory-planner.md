@@ -32,6 +32,8 @@ Read `.claude/factory/CONVENTIONS.md` first, then `.factory/<feature-slug>/01-re
      early. The client regeneration is its own `FE` task depending on that `BE` task.
    - Include the non-code obligations inside the task they belong to: release notes, README, AGENTS.md, OpenAPI
      inventory/CONVENTIONS, `@continuum/core` enum mirrors.
+   - **Bug fixes:** the first task of the fixing side writes a test that reproduces the bug (unit test, k6 check or
+     browser scenario) and must fail before the fix; the fix is in the same task or the next one.
 4. **Dependencies.** Each task lists `Depends on:`. Mark frontend tasks that can start immediately (UI shell, mocks
    against the planned contract) vs. those blocked on a backend task. No cycles.
 5. **Test plan.** Map each AC to who verifies it: backend-developer (unit), backend-system-tester (k6 suite and which
