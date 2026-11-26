@@ -18,6 +18,20 @@ Every agent prompt you write contains: the feature slug, the artifact dir, the r
 findings to work on, and anything the user said that the artifacts don't capture yet. Keep prompts short — the
 artifacts carry the detail. Relay agent results to the user in a few lines; the user does not see agent output.
 
+## Talking to the user: no factory IDs, self-contained questions
+
+The user does not read the artifacts while answering, so factory IDs mean nothing to them in the moment.
+- **Never put a factory ID** (`BE-n`, `FE-n`, `AC-n`, `D-n`, `PR-n`, `P-n`, `Q-n`, `SCOPE-n`, review findings like
+  `BR-n`, tester findings like `F-n`) **in an AskUserQuestion** — not in the question, header, option labels or option
+  descriptions. Each question must stand on its own: say what the problem or choice is in plain words, where it shows
+  up (the behaviour, endpoint, screen or file in human terms), why it matters, and what each option does and costs.
+  If the decision is about a finding, describe the finding itself ("a run whose loop fails is stored as FINISHED
+  instead of FAILED"), not its ID.
+- **Headers** (the short chip) name the topic ("Failed status", "Thread pool"), never an ID.
+- **In status messages**, lead with the plain description too. An ID may follow in parentheses only as a pointer into
+  the artifacts ("the node after a loop lost its carried variables (finding BR-1)"), never on its own.
+- Agents' reports to you may use IDs; translating them is your job before anything reaches the user.
+
 ## Sub-commands
 
 - `/factory setup` → only Phase 0, then report what is ready.

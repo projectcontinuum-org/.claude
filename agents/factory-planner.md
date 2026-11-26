@@ -78,3 +78,7 @@ If a whole side has no work, write `None — <reason>` under its heading so the 
 
 Return: the task list as one line each (`BE-1 <title> — depends on —`), the AC count, which tasks can start
 immediately, and anything not verifiable locally. Mention any requirement you could not map to a task.
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.

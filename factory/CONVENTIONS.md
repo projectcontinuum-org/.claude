@@ -138,3 +138,8 @@ backend task that updates the committed spec.
     why it exists and the rule it enforces (e.g. not "progress never goes down (BE-10, AC-25)" but "progress never goes
     down: a loop resets its members between iterations, so the completed-node count can drop"). Trace code back to
     tasks only in your own `0x-*.md` report (task → files, test → AC).
+14. **Questions to the user are self-contained.** The user answers without the artifacts in front of them, so no
+    factory ID (task, AC, decision, `Q-n`, review finding `BR-n`/`FR-n`, tester finding `F-n`, `SCOPE-n`) appears in
+    a question, its header or its options. Each one says in plain words what the problem or choice is, where it shows
+    up, why it matters and what each option does. Agents write open questions and decision items that way; the
+    orchestrator never forwards an ID-only question.

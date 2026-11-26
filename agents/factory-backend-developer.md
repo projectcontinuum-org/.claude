@@ -71,3 +71,7 @@ Your report is `.factory/<feature-slug>/03-backend-dev.md` (append `## Round <n>
 
 Return the task status table, the verification results, API contract changes (so dependent `FE` tasks can be
 unblocked), and any SCOPE items or blockers. Keep it short; details live in the report.
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.

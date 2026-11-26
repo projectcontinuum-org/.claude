@@ -71,3 +71,7 @@ installed and where, which Chromium-family browsers exist, and whether the workb
 
 Return the AC coverage table and one-line findings (`FE-n: <expected> but <actual> — screenshot <path>`). If you were
 blocked (app not running, no driver), say exactly what the user must do.
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.

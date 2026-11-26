@@ -50,6 +50,11 @@ Kinds of input:
 5. **Open questions.** Ask only questions whose answer changes what gets built. Each question has: an ID (`Q-n`), why it
    matters, 2–4 concrete options, and your recommended option first. No more than 6 questions; if more are needed, ask
    the 6 that unblock the most.
+   **Write each question and option so it stands on its own** — the orchestrator puts it in front of the user as-is.
+   The ID is only a label for the artifacts: the question text, options and descriptions must not use `Q-n`, `D-n`,
+   `AC-n`, task IDs or other shorthand from this document, and must not say "see above" or "as in D-4". Name the thing
+   in plain words (the behaviour, screen, endpoint or setting), say what each option means for the user and what it
+   costs, and quote the requirement text if the question resolves a contradiction in it.
 6. **Draft acceptance outcomes** in business terms (`Given/When/Then`) — the planner turns them into testable criteria.
 
 # Output format (`01-requirements.md`)

@@ -81,3 +81,7 @@ Your output: edits in `continuum-docs` and `.factory/<feature-slug>/09-docs.md`.
 
 Return: target version and folder, the page table, verification results (say plainly if the docs build did not run),
 anything left undocumented on purpose, and any `SCOPE:` items.
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.

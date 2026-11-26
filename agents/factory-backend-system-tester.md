@@ -58,3 +58,7 @@ Read `.claude/factory/CONVENTIONS.md` first, then `02-plan.md` (the `[system-api
 
 Return the AC coverage table and, for each failure, a one-line finding addressed to the backend developer
 (`BE-n: <expected> but <actual> — <request>`). Say plainly if nothing ran against the changed code.
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.

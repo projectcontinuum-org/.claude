@@ -60,36 +60,74 @@ what it safely can.
           │
           ▼
   5  Technical Writer ──── continuum-docs pages for the platform version being prepared
+                           (after verification is clean)
           │
           ▼
   6  Reporter ──────────── REPORT.md: overview, what changed, AC results, open items
 ```
 
-| Role | Agent | Writes |
-|------|-------|--------|
-| Product Manager | `factory-product-manager` | `01-requirements.md` |
-| Planner | `factory-planner` | `02-plan.md` |
-| Backend Developer | `factory-backend-developer` | Kotlin code, unit tests, OpenAPI spec, `03-backend-dev.md` |
-| Frontend Developer | `factory-frontend-developer` | workbench code, specs, `04-frontend-dev.md` |
-| Backend System Tester | `factory-backend-system-tester` | k6 suites in `continuum-system-tests`, `05-backend-system-tests.md` |
-| Frontend Tester | `factory-frontend-tester` | browser scenarios + screenshots, `06-frontend-browser-tests.md` |
-| Backend Expert | `factory-backend-expert` | `07-backend-review.md` (read-only review) |
-| Frontend Expert | `factory-frontend-expert` | `08-frontend-review.md` (read-only review) |
-| Technical Writer | `factory-technical-writer` | pages in `continuum-docs/docs/` (next version), `09-docs.md` |
-| Reporter | `factory-reporter` | `REPORT.md` |
+### The ten roles
+
+| # | Role | Agent | What it does | Writes | Edits code? |
+|---|------|-------|--------------|--------|-------------|
+| 1 | Product Manager | `factory-product-manager` | Turns your requirement into scope, a feasibility study and risks; asks you the open questions with a recommended option | `01-requirements.md` | No |
+| 2 | Planner | `factory-planner` | Splits the approved scope into small `BE-n` / `FE-n` tasks, names the focused classes/components each one adds, orders them by dependency, writes testable acceptance criteria `AC-n` | `02-plan.md` | No |
+| 3 | Backend Developer | `factory-backend-developer` | Implements `BE-n` in Kotlin/Spring Boot/Temporal with unit tests, OpenAPI spec, release notes, README and `AGENTS.md` updates; also does the backend fix rounds | code, `03-backend-dev.md` | Yes |
+| 3 | Frontend Developer | `factory-frontend-developer` | Implements `FE-n` in the Theia/React workbench (and other Continuum UIs) with specs and `data-testid`s; regenerates API clients from the committed spec | code, `04-frontend-dev.md` | Yes |
+| 4 | Backend System Tester | `factory-backend-system-tester` | Runs the changed services on a live stack and proves the `[system-api]` ACs with black-box k6 tests, incl. tenant isolation | k6 suites in `continuum-system-tests`, `05-backend-system-tests.md` | Tests only |
+| 4 | Frontend Tester | `factory-frontend-tester` | Drives the real workbench in Chromium (Puppeteer / Playwright over CDP) for the `[browser]` ACs, with screenshots | scenarios, `06-frontend-browser-tests.md`, `screenshots/` | Tests only |
+| 4 | Backend Expert | `factory-backend-expert` | Senior review: correctness, tenancy, API contract, Temporal determinism, dependencies, house rules; reproduces findings with probes | `07-backend-review.md` | No |
+| 4 | Frontend Expert | `factory-frontend-expert` | Senior review: workbench contracts, React/Theia patterns, accessibility, security, house rules | `08-frontend-review.md` | No |
+| 5 | Technical Writer | `factory-technical-writer` | Documents the verified feature on the `continuum-docs` site for the platform version it ships in (`docs/` = next; never snapshots a version) | pages in `continuum-docs`, `09-docs.md` | Docs only |
+| 6 | Reporter | `factory-reporter` | Writes the one-page report from the artifacts, checked against the real `git diff` | `REPORT.md` | No |
+
+The coordinator is the `/factory` skill in your main conversation. It runs the gates, asks you every question,
+launches the agents (developers in parallel; testers and experts in parallel) and keeps `state.md`. Agents never
+talk to you directly and never start other agents.
+
+Two helper agents live here too and are not part of the pipeline: `jsonforms-expert` (JSONForms dialogs for
+`@ContinuumNode`s; the developers follow its conventions) and `workflow-builder` (builds `.cwf` workflows through the
+api-server MCP server).
+
+### Artifacts
 
 Everything for one feature lives in `.factory/<feature-slug>/` in the workspace root. It sits outside this repo
 and every product repo, so you can read any step's output while the run is going.
 
-Rules every agent follows ([factory/CONVENTIONS.md](factory/CONVENTIONS.md)):
+| File | Written by | Content |
+|------|------------|---------|
+| `state.md` | coordinator | phase, task status, fix-round counters, your decisions, branch baselines, pause/resume point |
+| `01-requirements.md` | Product Manager | problem, scope, feasibility, risks, decisions `D-n` (new rounds appended, never rewritten) |
+| `02-plan.md` | Planner | tasks, dependency graph, acceptance criteria, test plan, what can't be verified locally |
+| `03-` / `04-…-dev.md` | developers | per round: tasks, files, tests, commands and results, API contract changes |
+| `05-` / `06-…-tests.md` | testers | AC → test → PASS / FAIL / NOT VERIFIED, how the stack ran |
+| `07-` / `08-…-review.md` | experts | findings by severity (BLOCKER / MAJOR / MINOR / NIT) and a verdict, per round |
+| `09-docs.md` | Technical Writer | target docs version, pages created/updated, docs build result |
+| `REPORT.md` | Reporter | the final report |
+
+### Rules every agent follows
+
+From the house rules in [factory/CONVENTIONS.md](factory/CONVENTIONS.md):
 - Agents read each repo's `AGENTS.md` before editing it.
 - Release notes, README and the OpenAPI spec are updated in the same change as the code.
 - Kotlin uses named arguments, tests included.
 - Code is modular and follows SOLID: small single-purpose classes and components, new behaviour in new collaborators
   instead of growing big classes. Reviewers treat a monolithic class or component as a MAJOR finding.
 - Code comments and docs explain the actual requirement; factory task IDs (`BE-3`, `AC-7`, ...) stay in `.factory/`.
+- Questions to you never use factory IDs (`BR-2`, `Q-4`, `D-12`, ...): each one explains the problem, where it shows
+  up and what each option does, so you can answer without opening the artifacts.
 - Agents never commit, push or switch branches.
 - A check that could not run is reported as `NOT VERIFIED`, never as passed.
+- Network-dependent steps (Gradle online resolves, `yarn install`, `npm install`) follow the machine's environment
+  profile and local policy; an exception, such as one online fetch of a new dependency, happens only with your OK.
+
+### Running parts of a run on another machine
+
+When this machine can't build or run something (for example the workbench behind a VPN that blocks npm), the
+coordinator can hand a phase to Claude Code on another machine, such as a GitHub Codespace reached with
+`gh codespace ssh`. That machine gets its own copy of `.claude/`, its own `factory/local-policy.md`, and the
+`.factory/<slug>/` artifacts the phase needs. You decide when, and how the code moves between machines (you push a
+branch, or the coordinator copies the files).
 
 ---
 
@@ -111,15 +149,20 @@ What you do during a run:
 2. **Gate 1: approve the requirements.** Check the In scope / Out of scope list. This is the cheapest moment to cut
    or add something.
 3. **Gate 2: approve the plan.** Check the acceptance criteria: they are exactly what gets tested. You are also asked
-   whether to create a `factory/<slug>` branch in each touched repo.
+   which branch to create in each touched repo (suggested `factory/<slug>`; a ticket name such as `CONTNM-180`
+   works too, and you can exclude repos).
 4. **Start the workbench when asked**, if the feature has UI changes and this machine can't build the workbench
    itself. The browser tester needs it running with the new code.
 5. **Decide on leftovers** if serious findings are still open after 3 fix rounds: fix more, accept as an open item,
-   or drop from scope.
-6. **Read `REPORT.md`, then commit and open PRs yourself.**
+   or drop from scope. Reviewers' and testers' findings that need a product decision come to you during the rounds
+   too.
+6. **Check the docs pages** the Technical Writer changed in `continuum-docs` (they are part of the same change).
+7. **Read `REPORT.md`, then commit and open PRs yourself.**
 
 You can talk to the coordinator at any time, e.g. "skip browser tests for this one", "add an AC for empty
-lists", "stop after the plan". It updates `.factory/<slug>/state.md` and carries on.
+lists", "stop after the plan", "pause the work", "hold the frontend until I say so". It updates
+`.factory/<slug>/state.md` and carries on. A scope change mid-run goes back through the Product Manager and the
+Planner, and you approve the revised requirements and plan before the developers continue.
 
 ---
 
@@ -299,6 +342,7 @@ minutes instead of a day.
 - **Acceptance criteria:** each one is `VERIFIED`, `PARTIALLY VERIFIED` or `NOT VERIFIED`, with evidence such as a
   test name or a screenshot path.
 - **What changed:** per repo, checked against the real `git diff`.
+- **Documentation:** the `continuum-docs` version and pages the Technical Writer updated.
 - **User actions before merge:** things like a `yarn.lock` regeneration, an OpenAPI lint the agents couldn't run,
   or a commit and PR per repo.
 
@@ -324,6 +368,7 @@ descriptions.
 | System tests don't cover the new code | `make up` runs released images. Let the tester run the changed service with `bootRun` (SETUP.md §5). |
 | Asked to approve every agent launch | Approve once per run, or allow it in your Claude Code permission settings. |
 | A run was interrupted | `/factory resume <slug>`. |
+| A new agent isn't found right after adding it | Reload the Claude Code window; agent files are picked up at session start. |
 
 ---
 
@@ -332,7 +377,7 @@ descriptions.
 | Path | What |
 |------|------|
 | `skills/factory/SKILL.md` | the `/factory` coordinator |
-| `agents/factory-*.md` | the 10 factory roles |
+| `agents/factory-*.md` | the 10 factory roles (see [The ten roles](#the-ten-roles)) |
 | `agents/jsonforms-expert.md` | JSONForms schema/uischema specialist for `@ContinuumNode` dialogs |
 | `agents/workflow-builder.md` | builds `.cwf` workflows via the api-server MCP server |
 | `factory/CONVENTIONS.md` | contract every factory agent reads first: artifacts, repo map, house rules |

@@ -80,3 +80,7 @@ Your report is `.factory/<feature-slug>/04-frontend-dev.md` (append `## Round <n
 
 Return the task status table, verification results, the click path + selectors for the frontend tester, and every user
 action required (e.g. "rebuild the workbench before browser tests").
+
+For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
+that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
+matters and the options — the orchestrator uses it to ask the user.
