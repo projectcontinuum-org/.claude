@@ -24,7 +24,16 @@ Your report is `.factory/<feature-slug>/03-backend-dev.md` (append `## Round <n>
    naming, error handling (`ProblemDetail`), logging and test style. Do not introduce new libraries unless the plan
    says so.
 3. **Implement task by task** in dependency order. Keep each change minimal and on-plan.
+   - **Design for modularity (CONVENTIONS.md house rule 12, SOLID).** Before coding a task, decide its units: one
+     focused class per responsibility (e.g. a parser, a validator rule, a scheduler, a merger), interfaces at seams
+     that tests fake or that may be swapped, collaborators passed in through the constructor. Never grow a big class
+     (`WorkflowDagExecutor`, `WorkflowValidator`, a controller) with a new feature's logic — add a collaborator and
+     delegate to it in a few lines. Split any class over ~300 lines or function over ~40 lines you write; justify an
+     exception in the report.
    - Kotlin: named arguments at call sites, descriptive names, no dense one-liners.
+   - **Comments explain the requirement, never cite factory IDs** (CONVENTIONS.md house rule 13): no `BE-n`, `AC-n`,
+     `D-n`, `PR-n` etc. in KDoc, comments, test names, assertion messages, AGENTS.md, README or release notes. State
+     the rule and why it exists in plain words; map tests to ACs only in `03-backend-dev.md`.
    - Nodes: `@ContinuumNode`, `ProcessNodeModel`/`TriggerNodeModel`, never a port id starting with `$`, `.doc.md`
      next to the class. For `propertiesSchema`/`propertiesUiSchema`, follow the conventions the `jsonforms-expert`
      agent documents in `.claude/agents/jsonforms-expert.md`.

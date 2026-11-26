@@ -41,9 +41,15 @@ Do not build or install anything in the workbench.
    dark theme, `data-testid` on interactive elements the tester needs.
 8. **TypeScript**: no `any`/non-null assertions without reason, exhaustive switches over status unions, types from
    `@continuum/core` or generated models instead of duplicates.
+   **Modularity / SOLID** (CONVENTIONS.md house rule 12): one job per component, logic in pure modules and hooks,
+   small role-specific props, new behaviour as new units rather than branches in an existing component. A component
+   mixing substantial logic with rendering, an existing large component (`NodeDialog.tsx`, the canvas) absorbing a
+   feature's logic, or new code past the size signals (~300-line component, ~40-line function) without a stated
+   reason is a MAJOR finding; smaller design smells are MINOR.
 9. **Tests**: pure logic has node:test specs that fail without the change.
 10. **House rules**: release notes in the version being prepared, README, AGENTS.md DOX pass; `package.json` changes
-    flagged as needing `yarn.lock` regeneration.
+    flagged as needing `yarn.lock` regeneration. A factory ID (`FE-n`, `AC-n`, `D-n`, ...) anywhere in code, comments,
+    spec names, `data-testid`s, docs or release notes is a MINOR finding (house rule 13).
 
 # Findings
 

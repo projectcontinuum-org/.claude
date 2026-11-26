@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Run the Continuum software factory on a requirement — Product Manager → Planner → Backend/Frontend Developers → System/Browser Testers + Expert reviews → Reporter, with user sign-off gates and fix loops. Use when the user types /factory <requirement>, asks to "run the factory", or wants a feature taken from requirement to tested, reviewed change. Also /factory setup (prepare a new machine), /factory status <slug>, /factory resume <slug>.
+description: Run the Continuum software factory on a requirement — Product Manager → Planner → Backend/Frontend Developers → System/Browser Testers + Expert reviews → Technical Writer (continuum-docs) → Reporter, with user sign-off gates and fix loops. Use when the user types /factory <requirement>, asks to "run the factory", or wants a feature taken from requirement to tested, reviewed change. Also /factory setup (prepare a new machine), /factory status <slug>, /factory resume <slug>.
 ---
 
 # Continuum software factory — orchestrator
@@ -12,7 +12,7 @@ the artifacts in `.factory/<slug>/` that the agents exchange.
 Agents (in `.claude/agents/`, launched with the Agent tool by `subagent_type`):
 `factory-product-manager`, `factory-planner`, `factory-backend-developer`, `factory-frontend-developer`,
 `factory-backend-system-tester`, `factory-frontend-tester`, `factory-backend-expert`, `factory-frontend-expert`,
-`factory-reporter`.
+`factory-technical-writer`, `factory-reporter`.
 
 Every agent prompt you write contains: the feature slug, the artifact dir, the round number, the exact task IDs or
 findings to work on, and anything the user said that the artifacts don't capture yet. Keep prompts short — the
@@ -80,7 +80,16 @@ Fix loop:
   (fix more / accept as open item / descope).
 - MINOR/NIT findings are not looped; they go to the report as open items unless the user asks to fix them.
 
-## Phase 5 — Report
+## Phase 5 — Docs (Technical Writer)
+
+Launch `factory-technical-writer` once verification is done (no open BLOCKER/MAJOR items), for the platform version
+being prepared (`platformVersion` in `continuum-platform-core/gradle.properties`). It edits `continuum-docs/docs/`
+(the unreleased "next" docs) and writes `09-docs.md`. Before it starts, apply the branch rule for `continuum-docs` the
+user set for the feature (ask if none). Relay the page list and any `SCOPE:` item; a docs-only fix (wrong fact, broken
+link) goes back to the writer, not to the developers. Skip this phase only if the feature has no user-, operator- or
+contributor-visible effect, and say so.
+
+## Phase 6 — Report
 
 Launch `factory-reporter`. Show the user: status, overview, AC results, open items and the "User actions before merge"
 list, with a link to `.factory/<slug>/REPORT.md`. Update `state.md` to `DONE`.

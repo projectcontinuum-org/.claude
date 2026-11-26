@@ -34,7 +34,8 @@ OS. The factory must run unchanged on any machine.
      frontend-tester      → 06-frontend-browser-tests.md │ parallel; failures and blocking
      backend-expert       → 07-backend-review.md         │ findings go back to the developers
      frontend-expert      → 08-frontend-review.md        ┘ (max 3 fix rounds, then the user decides)
-  5. reporter             → REPORT.md
+  5. technical-writer     → 09-docs.md           (continuum-docs for the platform version being prepared)
+  6. reporter             → REPORT.md
 ```
 
 The orchestrator is the `/factory` skill running in the main conversation. Subagents cannot ask the user questions or
@@ -56,6 +57,7 @@ holds `environment.md` and `tools/`; it is local working state, not committed an
 | `06-frontend-browser-tests.md` | frontend-tester | AC → scenario mapping, results, `screenshots/` |
 | `07-backend-review.md` | backend-expert | findings by severity, verdict |
 | `08-frontend-review.md` | frontend-expert | findings by severity, verdict |
+| `09-docs.md` | technical-writer | target docs version, pages created/updated, docs build result |
 | `REPORT.md` | reporter | feature overview and what changed |
 
 Rules for artifacts:
@@ -75,7 +77,7 @@ The workspace holds several independent git repos (no root repo). URLs and which
 | Frontend | `continuum-workbench` | Theia, React 18, TS 5, React Flow, JSONForms, Yarn 1.22 | `yarn workspace @continuum/workflow-editor-extension test`, `tsc --noEmit` (both need `node_modules`) |
 | Frontend (small) | credentials-server embedded UI in `continuum-platform-core`, `continuum-jsonforms-playground`, `continuum-website` | React/Vite | as available |
 | System tests | `continuum-system-tests` | k6 (API), browser suites under `suites/ui/` | `npm test`, `npm run check`, k6 against a live stack |
-| Docs | `continuum-docs` | Docusaurus | — |
+| Docs | `continuum-docs` | Docusaurus (versioned by platform version: `docs/` = next, `versioned_docs/` = released) | `npm run build` (needs `node_modules`) |
 | Deploy | `continuum-charts`, `continuum-local-setup` | Helm, docker-compose | — |
 
 Frontend ↔ backend contract: the workbench calls the platform only through typescript-axios clients in
@@ -110,3 +112,29 @@ backend task that updates the committed spec.
 11. **Scope discipline**: implement exactly the approved plan. A needed change outside the plan goes in your report as
     `SCOPE: <what and why>` for the orchestrator to raise, unless it is a trivial, obviously required adjustment
     (then do it and list it).
+12. **Modular, maintainable code (SOLID)**: code written by the factory must be easy to read, test and change.
+    - **Single responsibility**: each class, component, hook or module has one reason to change. If you can only
+      describe it with "and" ("parses the condition *and* schedules iterations *and* merges variables"), split it.
+    - **Open/closed**: add behaviour by adding a collaborator (a new implementation, strategy, renderer, handler), not by
+      growing `when`/`switch` chains or boolean flags inside an existing class.
+    - **Liskov**: an implementation of an interface honours its whole contract; no "not supported" overrides.
+    - **Interface segregation**: small, role-specific interfaces and props; no catch-all service or a component taking
+      a dozen unrelated props.
+    - **Dependency inversion**: depend on interfaces at seams that need swapping or faking in tests (engine, clock,
+      I/O, external clients); inject them (Spring constructor injection, Theia `inversify`, constructor parameters in
+      Temporal workflow code, props/hooks in React).
+    - **No monoliths.** Size signals that call for a split: a class or component over ~300 lines, a function over
+      ~40 lines, more than ~5 constructor dependencies, deeply nested branches, a React component that holds both
+      substantial logic and rendering. These are review triggers, not hard limits; a justified exception is stated in
+      the report.
+    - **Existing large classes** (e.g. a big executor or dialog): put the new behaviour in new, focused collaborators
+      and keep the edit to the existing class a thin delegation. Do not refactor existing code beyond what the task
+      needs — a wider clean-up is `SCOPE:`.
+    - Prefer pure functions for logic (easy to unit-test), keep framework glue thin, and name things for what they do.
+13. **No factory IDs in the product.** Task, criterion and decision IDs (`BE-n`, `FE-n`, `AC-n`, `D-n`, `PR-n`, `P-n`,
+    `Q-n`, `SCOPE-n`) exist only in `.factory/` artifacts. They mean nothing to a future reader of the code, so they
+    must never appear in code comments, KDoc/TSDoc, test names or messages, `AGENTS.md`, READMEs, release notes,
+    OpenAPI descriptions or commit-ready docs. Write the actual requirement or reason instead: what the behaviour is,
+    why it exists and the rule it enforces (e.g. not "progress never goes down (BE-10, AC-25)" but "progress never goes
+    down: a loop resets its members between iterations, so the completed-node count can drop"). Trace code back to
+    tasks only in your own `0x-*.md` report (task → files, test → AC).

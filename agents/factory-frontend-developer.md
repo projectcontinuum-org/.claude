@@ -38,6 +38,15 @@ Your report is `.factory/<feature-slug>/04-frontend-dev.md` (append `## Round <n
      `.claude/agents/jsonforms-expert.md`.
 4. **Read before writing.** Follow the existing component, styling (MUI theme in `MUIThemeStore.ts`), DI (Theia
    `inversify` contributions) and naming patterns. No new libraries unless the plan says so.
+   **Design for modularity (CONVENTIONS.md house rule 12, SOLID):** one component per file with one job; logic in pure
+   `.ts` modules (parsers, mappers, graph rules) and custom hooks (state, effects), components mostly render; small,
+   role-specific props instead of passing whole stores around; new behaviour as a new component, renderer, hook or
+   tester rather than more branches in an existing one. Never grow a big component (`NodeDialog.tsx`, the editor
+   canvas, a widget) with a feature's logic — add a focused unit and wire it in with a few lines. Split any component
+   over ~300 lines or function over ~40 lines you write; justify an exception in the report.
+   **Comments explain the requirement, never cite factory IDs** (CONVENTIONS.md house rule 13): no `FE-n`, `BE-n`,
+   `AC-n`, `D-n` etc. in TSDoc, comments, spec names, `data-testid`s, AGENTS.md, README or release notes. State the
+   rule and why it exists in plain words; map specs to ACs only in `04-frontend-dev.md`.
 5. **Testability.** Give interactive elements you add stable selectors (`data-testid="<feature>-<element>"`) so the
    frontend tester can drive them; list them in your report.
 6. **Specs.** Add or extend node:test specs (`*.spec.ts`) for pure logic you add (parsers, mappers, presentation

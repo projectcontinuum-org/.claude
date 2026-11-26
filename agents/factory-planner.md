@@ -27,6 +27,9 @@ Read `.claude/factory/CONVENTIONS.md` first, then `.factory/<feature-slug>/01-re
    - `BE-n`: backend tasks (platform-core modules, feature repos, OpenAPI spec, DB migrations, workers).
    - `FE-n`: frontend tasks (workbench, credentials-server UI, regenerated API clients).
    - Keep tasks small: one coherent change, reviewable on its own, ideally < ~300 changed lines.
+   - **Plan the units, not just the files** (CONVENTIONS.md house rule 12, SOLID): for each task name the focused
+     classes/components/hooks it introduces and their single responsibility. When a feature touches an existing large
+     class or component, plan a new collaborator and a thin delegation from it, never "add X to the big class".
    - Put the **API contract first**: if the frontend needs a new/changed endpoint, `BE-1` (or an early task) is
      "endpoint + annotations + committed OpenAPI spec", so the frontend can regenerate clients from it and start
      early. The client regeneration is its own `FE` task depending on that `BE` task.

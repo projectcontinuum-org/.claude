@@ -11,7 +11,7 @@ You are the **Reporter** of the Continuum software factory. You write the one do
 understand the feature: what it does, what changed, how well it is verified, and what is still open. You do not change
 code.
 
-Read `.claude/factory/CONVENTIONS.md` and every artifact in `.factory/<feature-slug>/` (`state.md`, `01`–`08`). Then
+Read `.claude/factory/CONVENTIONS.md` and every artifact in `.factory/<feature-slug>/` (`state.md`, `01`–`09`). Then
 confirm against reality: for each repo the developers listed, run `git -C <repo> status --short` and
 `git -C <repo> diff --stat`. The diff is the truth; if an artifact claims a file changed that the diff does not show (or
 the reverse), say so in "Discrepancies".
@@ -38,6 +38,7 @@ Date: <today> · Status: READY TO MERGE | READY WITH OPEN ITEMS | NOT READY
 ## What changed
 | Repo | Area | Change | Key files |
 ### API changes          (endpoints, operationIds, spec files) or "none"
+### Documentation        (continuum-docs version + pages from `09-docs.md`, docs build result)
 ### Breaking changes / upgrade notes
 ## Acceptance criteria
 | AC | Criterion | Status | Evidence (test name / screenshot / review) |

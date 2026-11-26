@@ -1,7 +1,7 @@
 # Continuum Claude Code workspace config
 
 Claude Code agents, skills and the **software factory** for Project Continuum. You describe a feature in plain
-language, and a team of nine agents takes it from requirement to tested, reviewed code across the `continuum-*`
+language, and a team of ten agents takes it from requirement to tested, reviewed code across the `continuum-*`
 repos. You approve the scope and the plan. Nothing is committed for you.
 
 - [Install](#install)
@@ -59,7 +59,10 @@ what it safely can.
      Frontend Expert (review)   ┘
           │
           ▼
-  5  Reporter ──────────── REPORT.md: overview, what changed, AC results, open items
+  5  Technical Writer ──── continuum-docs pages for the platform version being prepared
+          │
+          ▼
+  6  Reporter ──────────── REPORT.md: overview, what changed, AC results, open items
 ```
 
 | Role | Agent | Writes |
@@ -72,6 +75,7 @@ what it safely can.
 | Frontend Tester | `factory-frontend-tester` | browser scenarios + screenshots, `06-frontend-browser-tests.md` |
 | Backend Expert | `factory-backend-expert` | `07-backend-review.md` (read-only review) |
 | Frontend Expert | `factory-frontend-expert` | `08-frontend-review.md` (read-only review) |
+| Technical Writer | `factory-technical-writer` | pages in `continuum-docs/docs/` (next version), `09-docs.md` |
 | Reporter | `factory-reporter` | `REPORT.md` |
 
 Everything for one feature lives in `.factory/<feature-slug>/` in the workspace root. It sits outside this repo
@@ -81,6 +85,9 @@ Rules every agent follows ([factory/CONVENTIONS.md](factory/CONVENTIONS.md)):
 - Agents read each repo's `AGENTS.md` before editing it.
 - Release notes, README and the OpenAPI spec are updated in the same change as the code.
 - Kotlin uses named arguments, tests included.
+- Code is modular and follows SOLID: small single-purpose classes and components, new behaviour in new collaborators
+  instead of growing big classes. Reviewers treat a monolithic class or component as a MAJOR finding.
+- Code comments and docs explain the actual requirement; factory task IDs (`BE-3`, `AC-7`, ...) stay in `.factory/`.
 - Agents never commit, push or switch branches.
 - A check that could not run is reported as `NOT VERIFIED`, never as passed.
 
@@ -325,7 +332,7 @@ descriptions.
 | Path | What |
 |------|------|
 | `skills/factory/SKILL.md` | the `/factory` coordinator |
-| `agents/factory-*.md` | the 9 factory roles |
+| `agents/factory-*.md` | the 10 factory roles |
 | `agents/jsonforms-expert.md` | JSONForms schema/uischema specialist for `@ContinuumNode` dialogs |
 | `agents/workflow-builder.md` | builds `.cwf` workflows via the api-server MCP server |
 | `factory/CONVENTIONS.md` | contract every factory agent reads first: artifacts, repo map, house rules |
