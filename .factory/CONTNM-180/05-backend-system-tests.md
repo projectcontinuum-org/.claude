@@ -1,957 +1,641 @@
-# Backend system tests: loops
+# Backend system tests: CONTNM-180 — Kotlin language-server support (bridge, packaging, production image)
+
+Role: backend system tester. Black-box, over the wire (a Socket.IO + Theia channel client written for the suite) and
+through the docker CLI. No production code was changed. Inputs: `02-plan.md` (the `[system-api]` ACs), `03-backend-dev.md`
+rounds 1-4, `07-backend-review.md`, `spike-kotlin-ls.md`, `continuum-workbench/AGENTS.md`, `language-server-extension/README.md`.
 
 ## Round 1
 
-Date 2026-11-25. Plan: `02-plan.md` "Round 2 — full CEL" (round-1 ACs where not superseded or withdrawn). Code under
-test: `continuum-platform-core` branch `CONTNM-180`, uncommitted, the state after BE rounds 1-5 of `03-backend-dev.md`.
-Tests written in `continuum-system-tests` branch `CONTNM-180` (uncommitted; no git writes).
+Date 2026-11-27.
+
+**Verdict: FAIL for the production image, PASS for the bridge itself.** The bridge's security, document isolation,
+lifecycle, protocol and memory-ceiling behaviour hold on the dev bundle and in the image (offline, uid 1000). One BLOCKER:
+in the production image the language server cannot find the Kotlin standard library, so the documented clean script
+shows five false errors and completion lists are truncated (ST-1). The dev bundle passes only because the developer's
+`~/.gradle` cache happens to contain the library. Two MAJOR runtime findings the unit tests could not see: the first
+dialog after a cold server start gets no diagnostics until the user types (ST-2), and a few open scripts exhaust the
+512 MB heap without anything restarting the server (ST-3). The measured memory also needs a decision (ST-4).
+
+Counts: dev bundle 48 passed / 2 failed / 3 skipped (53 checks); production image as shipped, offline, uid 1000: 47 passed /
+5 failed / 1 skipped (53 checks) plus 1 passed in the root pass; the same image with the Kotlin library made discoverable
+(experiment): 50 / 2 / 1 plus 1. The only failures left in that last run are the two ST-2 checks.
 
 ### Environment
 
-**Everything ran against the changed backend code.** `make up` was not used, because its released images are not this
-code.
-
-- **Infra.** `docker-compose -p loops-systest -f continuum-system-tests/docker/docker-compose.yml --env-file docker/.env up -d --wait`, limited to the infra services:
-  - postgresql, temporal, temporal-search-attributes-init, mosquitto, kafka1-3, schema-registry, minio;
-  - images: postgres 16, temporal auto-setup 1.26.2, cp-kafka latest, cp-schema-registry 7.2.1, silo/minio.
-  - This used the system-tests compose (same ports as `continuum-platform-core/docker`, plus healthchecks), under its own project name.
-  - Nothing else was running before.
-  - Stopped at the end with `down` (no `-v`; the named volumes remain).
-- **Platform services: built from `CONTNM-180`, run as boot jars on the host.**
-  - Built with `./gradlew --offline -q :continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar`.
-  - Started with `java -jar` in the background (not `bootRun`, to avoid three Gradle daemons racing).
-  - Each was stopped by PID at the end.
-
-  | Service | Source | Port | PID |
-  |---|---|---|---|
-  | continuum-api-server 0.0.23 | CONTNM-180 working tree | 8080 | 17800 |
-  | continuum-message-bridge 0.0.23 | CONTNM-180 working tree | 8091 | 17811 |
-  | continuum-orchestration-service 0.0.23 | CONTNM-180 working tree (`CONTINUUM_API_SERVER_BASE_URL=http://localhost:8080`) | 8090 | 17909 |
-  | continuum-feature-base worker 0.0.10 | feature-base `main`, **rebuilt against the CONTNM-180 platform** (composite build, see below) | 8092 | 18324 |
-  | continuum-credentials-server 0.0.23 | unchanged module, existing local jar (only for the credentials and smoke regression suites) | 8083 | 19935 |
-
-- **Feature-base worker.**
-  - The existing `worker-0.0.10.jar` (Nov 19) bundles a commons 0.0.23 *without* `DefaultFlowVariables` (it predates `1af31f5`). With it a loop condition could read no variable, so it was only used briefly (PID 18075) and then replaced.
-  - The replacement was built with `./gradlew --offline -q --init-script <scratch build-dir redirect> --include-build ../continuum-platform-core :worker:bootJar` in `continuum-feature-base`.
-  - Its build output went to `/tmp/loops-systest.Dtcv3h/gradle-build/`, so neither repo's `build/` was touched and `~/.m2` was not changed.
-  - That jar carries the CONTNM-180 commons, worker-starter and avro-schemas, still on protobuf-java 3.25.5, with no cel-java.
-- **Base URLs.** `API_SERVER_URL=http://localhost:8080` and `CREDENTIALS_URL=http://localhost:8083` (the `lib/config.js` defaults). k6 v2.4.0, node v24.18.0.
-- **Loop registration was observed live** (AC-6 precondition):
-  - Before the orchestrator started, `POST /node-explorer/nodes/task-queues ["org.projectcontinuum.core.builtin.Loop"]` → `{}`, and the documentation → 404.
-  - Orchestrator log: `RetryingRegistration : Published built-in node registration 'org.projectcontinuum.core.builtin.Loop' (worker 'orchestration-…', attempt 1)`, then task-queues → `{"…Loop":"$builtin"}`.
-- **Side effect left behind:** the api-server ran with `continuum-platform-core` as its working directory, so it created the git-ignored `continuum-platform-core/.continuum-cache/workflow-data/` (DuckDB cache, its default `CONTINUUM_CACHE_DIRECTORY`). It is not tracked and not in `git status`. I could not remove it (`rm -rf` is denied); the user can delete it.
-
-### Live loop runs: what could and could not run
-
-- No node in `continuum-feature-base` sets a flow variable of the user's choosing (grep for `setFlowVariable`: no hits).
-- The live runs therefore steer the condition with the **default flow variables** every worker exports per node:
-  - `conditionalSplitterNode_split.executionStatus` = `"SUCCESS"` after every iteration (string);
-  - `.durationMs` (int);
-  - `createTableNode_seed.executionStatus`, which exists before the loop.
-- This drives: stop after iteration 1, both limit policies, `check: before` (zero iterations), missing variable, `||` absorbing a missing variable, `"s" == 1`, `"s" > 1`, int vs double, non-boolean under both `onNonBooleanResult` values (also on the first `before` check), a failing member, and nested loops.
-- **Not drivable:** a condition whose value changes between iterations (AC-16's 3-iteration paging run, AC-17's "false after 2 iterations", AC-21 carried values overriding outside values). These stay NOT VERIFIED live.
+| Item | Value |
+|---|---|
+| Dev target | my own workbench instance on `:3006` (the frontend tester's `:3005` was not touched): `bash -ic 'sdk use java 21.0.11-tem && cd continuum-workbench/continuum-workbench && ./node_modules/.bin/theia start --plugins=local-dir:./plugins --port 3006'` with `THEIA_CONFIG_DIR` and `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` in fresh temp dirs, `CONTINUUM_LANGUAGE_SERVER_IDLE_TIMEOUT_SECONDS=15`, `CONTINUUM_KOTLIN_LS_HOME=<repo>/continuum-workbench/.kotlin-ls` (needed, see ST-6). Bundle built 21:24 and not rebuilt; `lib/`, `src-gen/`, `plugins/` untouched. Server: fwcd kotlin-language-server 1.3.13 on the host JDK 21.0.11-tem. No platform stack. |
+| Production image | `kotlin-lsp-systest-workbench:r1`, id `e86b650d66b5`, built by me from `continuum-workbench/Dockerfile` of the working tree with a clean staged context (no `node_modules`, `lib/`, `src-gen/`, `plugins/` from the checkout). `docker build` exited 0 (Kotlin server download + checksum step 27 s; the fwcd extension's pinned download "checksum verified"). Size 4,788,550,192 bytes = 4567 MiB (4.79 GB); the released `projectcontinuum/continuum-workbench:0.0.16` is 4930 MiB (5.17 GB) — not a like-for-like delta (different build); the meaningful delta is `/opt/continuum/kotlin-ls` = 149 MB (JRE 60 MB, of which `lib/modules` 26 MB; server 90 MB). |
+| How the image was run | `docker run --network none --user 1000:1000` (the cluster manager runs the pod as uid 1000), the suite copied in and run inside the container as uid 1000 (a container's root has no `CAP_SYS_PTRACE` and cannot read the backend's `/proc/<pid>/fd`), plus a short root pass for `/app` (root-owned). Pod-like runs: `--memory 1g --memory-swap 1g`. Memory from the container's cgroup files. |
+| Host | Linux, 16 cores, 59 GB, Docker 29.10.0, Node 24 (nvm), JDK 21.0.11-tem. Because the host has 59 GB, an unlimited container makes the JVM size its initial heap at its `-Xmx` (higher RSS); a 1 GiB container shows the realistic pod numbers. Both are reported. |
+| Not needed / not run | k6 (plain Node client), the platform stack (the bridge is workbench-only), the browser (frontend tester). |
 
 ### AC coverage
 
-Check names are verbatim from `suites/api/loops.js`; "×n" means one check per case. Final run: **162/162 checks
-passed, `isolation_violations` 0, `known_gaps` 5** (run 3 times, all the same).
+Check names are those printed by the suites (`suites/api/kotlin-lsp-bridge.mjs`, group in brackets; `suites/api/kotlin-lsp-image.mjs` for the image). A full list is in Appendix A.
 
-| AC | Check name(s) | File | Result |
+| AC | Check(s) | File | Result |
 |---|---|---|---|
-| AC-6 Loop in registry after the orchestrator starts | "the Loop is registered with the built-in task-queue marker $builtin"; "search finds the Loop with its node info"; "search nests the Loop under the 'Flow Control' category"; "the palette roots include 'Flow Control'"; "'Flow Control' lists the Loop as a node"; "the Loop documentation is 200 markdown starting with \"# Loop\""; "getContinuumNodeMetadata returns the Loop with its schemas" (MCP); "another tenant sees the same Loop (the registry is shared by design)" | `suites/api/loops.js` | PASS |
-| AC-5 registration (live part only: one publish at start, attempt 1) | observed in the orchestrator log, not a k6 check. The retry and backoff (5 attempts, shutdown) were not provoked against a real broker outage | — | PASS (first attempt only); retry: NOT VERIFIED (no broker outage provoked; unit-tested by the developer) |
-| Contract: registered `propertiesSchema` / `propertiesUISchema` | "the registered schema requires condition, maxIterations, onLimit, onNonBooleanResult and check"; "the registered schema rejects undeclared properties"; "onNonBooleanResult is fail \| treat-as-false with default fail"; "condition is a string of 1..2048 characters with the default vars[\"hasMore\"] == true"; "maxIterations is 1..10000, default 50"; "the registered defaults include onNonBooleanResult: fail"; "the UI schema renders the condition as a CEL query control, then onLimit before onNonBooleanResult"; "the registered Loop has no ports" | `suites/api/loops.js` | PASS |
-| AC-7 (amended) settings | "a loop with the default settings (onNonBooleanResult: fail included) is valid"; "loop setting: <case>: validate is 200 with valid=false / exactly one error, on loop 'L' and '<property>' / the error says '…'" ×7 (maxIterations 0, 10001, onLimit, check, onNonBooleanResult outside the enum, empty condition, 2,049-character condition); "start with onNonBooleanResult outside its enum is 400 ProblemDetail"; "the start 400 names the loop and onNonBooleanResult" | `suites/api/loops.js` | PASS |
-| AC-9 edge to a loop | "an edge into a loop is invalid"; "the edge into the loop gets one error naming the edge and saying a loop has no ports"; "a loop is never reported as not connected" | `suites/api/loops.js` | PASS |
-| AC-10 leave and come back | "X1 -> Y -> X2 (Y outside loop L) is invalid with an error on 'L' naming 'Y'"; "start of X1 -> Y -> X2 is 400"; "A -> X1 -> X2 -> B with X1, X2 in the loop is valid" | `suites/api/loops.js` | PASS |
-| AC-13 (rewritten) rejected and accepted conditions over HTTP | "condition <label> (<text>): validate is 200 with valid=false / exactly one error, on loop 'L' and 'condition' / the error says 'Loop 'L': the condition <reasonText>'" ×7 (`now() > 1`, `foo == 1` → does not type-check; `vars["p"] + 1` → does not return true or false; `vars["a"] ==` → is not a valid CEL expression; `vars["s"].matches("(")` → invalid regex…; the re-bound `cel.bind` → binds a name…; 33-deep nesting → nests brackets deeper than 32 levels); "condition of 2,049 characters (schema maxLength, no second error): …" (one error, the schema's "must be at most 2,048 characters", as the user confirmed); "full-CEL condition accepted: <text>" ×9 (the 7 AC-13 examples, plus depth 32 and exactly 2,048 characters); "start with a rejected condition is 400 ProblemDetail"; "the start 400 has one error on loop L / condition with the reason"; "a start rejected for its condition returns no workflowId" | `suites/api/loops.js` | PASS |
-| AC-13 / AC-14 constant-condition warning | "condition `true` is valid with exactly one warning on the condition"; "the warning says the condition reads no flow variable" | `suites/api/loops.js` | PASS |
-| Schedule create validates loops (inventory: start/validate/schedule share the validator) | "a schedule whose loop condition is rejected is 400 with the error on L / condition"; "a schedule of a valid loop workflow is 201"; "the stored schedule keeps the loop type and the members parentNode"; "the owner can read the loop schedule"; "loop schedule: hidden from other tenant (404)" | `suites/api/loops.js` | PASS |
-| AC-14 (amended) MCP | "MCP initialize is 200 with a session id"; "MCP still has exactly six tools"; "the workflow tool descriptions teach the loop: nodeId, parent, vars[\"name\"], onNonBooleanResult, validator authoritative"; "the validate tool says edges never name a loop"; "MCP validate accepts a spec with a loop and members declaring parent"; "MCP validate reports <label> as one error on L / condition" ×7; "MCP validate gives one warning on L / condition for condition `true`"; "MCP build refuses a rejected condition with the error and no workflow"; "MCP build of a loop spec is valid and returns a workflow"; "the built loop has type Loop and the Loop node model"; "the built loop comes before its members"; "every built member has parentNode L and a position inside the box"; "the built edges never name the loop" | `suites/api/loops.js` | PASS (live; AC-14 is [unit] in the plan, this is extra) |
-| AC-24 budget warning (live part) | "maxIterations 10000 x 2 members is valid but warns on maxIterations about the run history limit" | `suites/api/loops.js` | PASS |
-| AC-15 loop has no activity, run does not fail at init | every "loop run \"<name>\" starts (200)" ×14, and each run reached a terminal status with member statuses set (no `InitializationFailed`) | `suites/api/loops.js` | PASS |
-| AC-16 (live) example paging run: 3 iterations, `Finished after 3 iterations` | Not drivable (see above). What ran instead: "a loop whose condition turns false ends SUCCESS \"Finished after 1 iterations\""; "the members ran and the node after the loop ran"; "a loop run that succeeds is FINISHED" | `suites/api/loops.js` | NOT VERIFIED: no feature-base node sets a chosen flow variable, so a condition that is true for 2 iterations and false in the 3rd cannot be built. The 1-iteration SUCCESS path PASSES |
-| AC-17 check before | "check before with a false condition: loop SUCCESS \"Condition was false before the first iteration\""; "check before with a false condition: members and the consumer after the loop are SKIPPED"; "check before with a false condition: the run is FINISHED" | `suites/api/loops.js` | PASS (zero-iteration part); "false after 2 iterations": NOT VERIFIED (same reason as AC-16) |
-| AC-18 limit policies | "the limit with stop-with-warning ends WARNING \"Stopped at the limit of 3 iterations\""; "after a stop-with-warning limit the node after the loop runs and the run is FINISHED"; "the limit with fail fails the loop (FAILED) with the $error \"Loop 'L' reached its limit of 2 iterations and the condition still holds.\""; "the limit with fail: the node after the loop is SKIPPED"; run status FAILED → KNOWN GAP | `suites/api/loops.js` | PASS; "the run fails" (run record): KNOWN GAP (see Failures F-1) |
-| AC-19 member failure | "a failing member fails the loop (FAILED) with the $error \"Loop 'L' stopped in iteration 1: node 'bad' failed.\""; "a failing member: the node after the loop is SKIPPED"; run status → KNOWN GAP | `suites/api/loops.js` | PASS (failure in iteration 1, not 2: a member cannot be made to fail only in iteration 2 with feature-base nodes); run status: KNOWN GAP (F-1) |
-| AC-20 nested loops, iteration resets | "nested loops: the outer loop stops at its limit of 2 and the inner one at its limit of 3, with warnings"; "nested loops: the run is FINISHED and the node after the outer loop ran"; "nested loops: while iterating, a loop shows \"Iteration k of max\"" | `suites/api/loops.js` | PASS (outer 2 x inner 3 ended as specified; the 6 inner-member executions cannot be counted over HTTP, because the snapshot holds only the last iteration: NOT VERIFIED) |
-| AC-21 carried variables | "the finished loop stores the variables carried into its last iteration as its display $variable" | `suites/api/loops.js` | PASS (display `$variable` present with the members' variables); override of an outside value: NOT VERIFIED (no settable variable) |
-| AC-22 (rewritten) CEL runtime semantics | (a) "a missing variable fails the loop (FAILED) with the $error \"Loop 'L': flow variable 'hasMore' is not set when the condition is checked in iteration 1 (column…\""; (b) "a \|\| whose other side is true absorbs the missing variable (no failure; …)"; (c) "a string compared == with an int is false, so the loop ends after iteration 1" and "a string > int comparison fails the loop (FAILED) with the $error \"Loop 'L': the condition check in iteration 1 failed with EVALUATION_ERROR…\""; (d) "an int variable compares with a double literal by value (true: …)" | `suites/api/loops.js` | PASS for (a)-(d) (AC-22 is [unit] in the plan; this is live with the real cel-java evaluator); (e) JSON → CEL types: NOT VERIFIED live (only Long and String reach the condition from default variables) |
-| AC-25 progress and iteration message | "run progress was sampled while the loop ran, never decreased and ended at 100"; "while the loop iterates it shows \"Iteration k of 3\""; "nested loops: run progress was sampled while running and never decreased" | `suites/api/loops.js` | PASS |
-| AC-44 onNonBooleanResult | "a non-boolean result with fail fails the loop (FAILED) with the $error \"Loop 'L': the condition returned a string (\"SUCCESS\") in iteration 1, not true or false.\""; "a non-boolean result with fail: the node after the loop is SKIPPED"; "a non-boolean result with treat-as-false ends the loop WARNING with the treated-as-false message"; "with treat-as-false the node after the loop runs and the run is FINISHED"; "check before and a non-boolean first check under treat-as-false: members SKIPPED, loop WARNING" | `suites/api/loops.js` | PASS (iteration 1, not the plan's iteration 2: the value cannot change between iterations here); run status for `fail`: KNOWN GAP (F-1) |
-| AC-3 loop fields round-trip (live) | "the run snapshot keeps the loop type and the members parentNode"; "the stored schedule keeps the loop type and the members parentNode" | `suites/api/loops.js` | PASS |
-| Tenant isolation of loop resources | "loop run record: hidden from other tenant (404)" + "the owner can read a loop run"; "loop schedule: hidden from other tenant (404)" + "the owner can read the loop schedule" | `suites/api/loops.js` | PASS (`isolation_violations` 0) |
-| AC-11 loop-free workflows unchanged | "a workflow without loops still runs to FINISHED"; plus the existing suites against the changed services: smoke 10/10, `api/workflow` 15/15, `api/runs` 30/30, `api/schedules` 36/36, `api/node-explorer` 19/19, `api/data` 45/45, `api/credentials` 54/54, `tenancy/isolation` 32/32; `make api` (all 7 incl. loops) exit 0 | `suites/api/loops.js`, existing suites | PASS |
-| AC-23 history guard, AC-26 replay, AC-27 run started directly through Temporal, AC-42, AC-43 | not reachable over HTTP (they need a tiny guard threshold, Temporal-client starts that skip the validator, or engine internals) | — | NOT VERIFIED: not system-testable; [unit] in the plan |
+| AC-5 clean script has no diagnostics (server side) | [diagnostics] "the documented clean script (row["a"]?.toString() + flow.get("x")) is analysed and publishes no diagnostics at all"; "a type error is published at the user's line and column (the hidden header does not shift it)"; "an error below leading imports is reported at the user's line"; "fixing the error clears the markers"; completion (`flow.`, `row.`, `"abc".le`), hover and signature-help checks | bridge | **Dev bundle: PASS (10/10).** **Production image as shipped: FAIL (5 of 10, ST-1)**: the clean script gets 10 diagnostics, 5 on the user's lines (`MISSING_BUILT_IN_DECLARATION`). **Image + stdlib made discoverable: PASS (10/10).** Caveat ST-2. |
+| AC-13 works with no outbound network | image driver `asis`: container with network mode `none` (only `lo`), precondition check "this environment has no outbound network (a connect to 1.1.1.1:443 fails)", the whole bridge suite with `--offline`; `seed`: the container starts offline and the backend answers in 0.6 s | image + bridge | **FAIL as shipped, only through ST-1** (the 5 diagnostics checks). Every other group passes offline: lifecycle 11/11, handshake 3/3, documents 7/7, security 12/12, leak 2/2, memory 3/3, protocol 3/3. With the stdlib made discoverable the run is clean except the two ST-2 checks. The dev bundle was not run network-blocked (the plan only asks for that when the image build is infeasible; it was feasible). |
+| AC-14 RSS within the documented cap; started with `-Xmx` | [memory] "the server process is started with -Xmx512m (and the other JVM limits)"; "one editor (a 30-line script, 100 edits, 10 completions): resident memory stays below the 1000 MB restart ceiling, no restart, every answer served"; "5 editors at once…"; image `pod-limit` (1 GiB container) and `exhaustion` runs | bridge + image | **PASS for the AC as written**: argv carries `-Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m`; RSS stayed under the 1000 MB ceiling in every run (dev: 867 MB 2 s after cold start, peak 907 MB with 1 editor, 909 MB with 5 = 9 % below; image with the stdlib reachable, unlimited container: peak 877 MB = 12 % below; image in a 1 GiB container: 795-797 MB = 20 % below; as shipped, where the analysis is broken, 689-696 MB); the process was never restarted. Findings: ST-3 (the ceiling is unreachable, so it cannot protect), ST-4 (pod memory). |
+| AC-15 (runtime side) | [security] "a connection for an unknown or malformed language id is refused (channel closed by the server, nothing delivered)" (7 ids) | bridge | **PASS** for what is visible from outside: only `kotlin-script` is registered. The dummy second language (zero edits to generic code) is a unit-level check and cannot be shown over the wire without a test-only registration: **NOT VERIFIED** as a system check. |
+| AC-16 bridge security | [handshake] no cookie → HTTP 400, foreign Origin → HTTP 400; [security] 12 checks (19 spellings of `file:`/malformed URIs refused with -32602, nested `uri`/`*Uri` keys refused, 10 out-of-set methods refused, hostile `didOpen` produces no analysis, `initialize` cannot widen roots, wrong language id / unopened document refused, malformed JSON-RPC ignored, `shutdown`/`exit` do not stop the shared server, server cwd is the private directory holding only seeded declarations); [documents] 7 checks (owner can read; another connection cannot open or read; diagnostics never cross connections; close and vanished client release a document; full-text sync only; 50 documents per connection); [leak] a Kotlin file planted in the Theia workspace folder and in `/app` is invisible; [protocol] 3 checks (only state notices, diagnostics and responses reach a client; no server file paths; no server request ever reaches a client) | bridge | **PASS** (dev and image, offline). Every isolation check is paired with an owner-can-read check. |
+| AC-17 one lazy shared server, idle stop | [lifecycle] "no server process before the first editor connects"; "one server for several editors that connect at the same instant (started lazily, reported starting then ready)"; "a later editor reuses the running server"; "closing editors keeps the server for the editors that remain"; "the server is not stopped the moment the last editor closes"; "a reconnect inside the idle window reuses the server"; "a vanished client … lets the server stop after the 15 s idle timeout, not before"; "the next connection after an idle stop starts a new server (lazily)"; "an orderly close lets the server stop after the idle timeout"; image `default-idle` | bridge + image | **PASS.** 0 processes before the first editor; 1 process for any number of editors (ready 1.2-1.4 s cold); the same pid on reconnect; idle stop at 15.3-15.5 s with a 15 s timeout and at **600.5 s with the production default** (still running at 300 s); a fresh pid on the next connection. The 2 lifecycle checks that fail (below) are about diagnostics after a (re)start, not about processes: ST-2. |
+| AC-20 production image | image driver `image`: "the image starts like projectcontinuum/continuum-workbench:0.0.16: same entrypoint, command, working directory, user and ports"; "the entrypoint script differs … only by seeding the Kotlin extension settings" (0 lines removed, 3 added: a comment, the seeding command, a blank line); "the image bundles Java 21" (21.0.13.1, Temurin-21.0.13.1+2 LTS); "the Java runtime is reduced (jlink)…" (15 modules, no `javac`, no other Java on PATH); "sizes (measurement)"; "the pinned Kotlin language server is installed" (marker `1.3.13 4fe7d71d087b…` equals the pin in `scripts/download-kotlin-ls.sh`); "the server's own start script runs on the bundled runtime"; "the VS Code Kotlin extension is bundled" (fwcd.kotlin 0.2.36, vscode.git, vscode.git-base); `download`: a tampered archive is rejected ("checksum mismatch", exit 1, nothing installed), an unreachable download installs nothing (curl exit 37); `seed` ×5 | image | **PASS** for JRE 21, the pinned server, the checksum guard, no runtime download (the offline run and the seeded `initialized` marker), entrypoint/command unchanged apart from the seeding, and the seeded settings landing in `/home/continuum/.continuum`, the folder the app reads (Theia logs `Configuration directory URI: 'file:///home/continuum/.continuum'`). **NOT VERIFIED: server `--version`** — the pinned server (1.3.13) has no such option (JCommander: `Was passed main parameter '--version'`, which proves the bundled runtime runs the server class); the version is evidenced by the marker, the jar name and `serverInfo` in `initialize`. "Everything bundled" is not true for the stdlib (ST-1) and the runtime is missing modules (ST-5). |
 
-### Failures
+### Results by run
 
-No check failed. One known gap, reported through `knownGap()` and not counted as a pass:
+| Run | Target and setup | Result |
+|---|---|---|
+| Dev full | `:3006`, all default groups, `BACKEND_PID`, `IDLE_TIMEOUT_SECONDS=15`, `LEAK_PROBE_DIR` = backend cwd | 48 passed, 2 failed (the two ST-2 lifecycle checks), 3 skipped (offline not requested; packaging needs `EXPECT_LS_HOME`; exhaustion is opt-in) |
+| Dev exhaustion | `ONLY=exhaustion` | the 10th open script gets no answer within 45 s; the server is not replaced (same pid 45 s later, RSS 916 MB); recovers when the scripts are closed (129 ms) → 2 passed, 1 failed (ST-3) |
+| Image as shipped | `--network none`, uid 1000, 15 s idle | 47 passed, 5 failed (all in `diagnostics`, ST-1), 1 skipped; root pass `/app` leak probe 1 passed. Whole container peak 833 MB, not OOM-killed |
+| Image + stdlib (experiment) | the jar the server already ships copied into `<install>/m2/org/jetbrains/kotlin/kotlin-stdlib/<ver>/` and `MAVEN_REPOSITORY` pointing at it (a diagnostic aid, not a product change) | 50 passed, 2 failed (ST-2), 1 skipped; diagnostics 10/10 → ST-1 confirmed fixed by it, nothing else changes. Container peak 1013 MB (unlimited) |
+| Image static groups | `image`, `download`, `seed` | all passed; 1 SKIP (`--version`, NOT VERIFIED) |
+| Image default idle | production default timeout, `IDLE_CHECKS=vanished`, 611 s | 10 passed, 0 failed, 1 skipped; stopped at 600.5 s; container peak 758 MB |
+| Image exhaustion (unlimited container) | stdlib reachable | the 14th open script fails (`-32603`, `OutOfMemoryError: Java heap space`, after 12-20 s; RSS 845-879 MB); not replaced; recovers after close (49-296 ms); container peak 1013-1067 MB, not OOM-killed → 2 passed, 1 failed (ST-3) |
+| Image in a 1 GiB container | stdlib reachable: diagnostics + memory, then exhaustion | 13/13 passed (LS peak 676-797 MB across two runs, container sampled peak 819-940 MB); exhaustion: the 14th script fails after ~12 s, not replaced, recovers (93 ms), container peak 933 MB, not OOM-killed |
 
-- **F-1 (KNOWN GAP, pre-existing, not loop-specific): a run with a failed node is recorded `FINISHED`.**
-  - Request: `GET /api/v1/workflow-runs/{workflowId}` of each run whose loop FAILED: limit with `fail`, missing variable, EVALUATION_ERROR, non-boolean with `fail`, failing member. That is 5 samples of `gap:run-with-a-failed-node-is-recorded-FINISHED`.
-  - Expected: `status: "FAILED"`. The plan's AC-18/19/22a/44 say "the run fails", and Temporal agrees: `temporal workflow describe` of the limit-fail run → `Status FAILED`, `Message: Workflow execution failed`.
-  - Actual: `status: "FINISHED"`, `progressPercentage: 100`.
-  - A loop-free control run behaves the same: `CreateTable` with an invalid JSON array, node FAILED, run record `FINISHED`.
-  - Cause (`continuum-orchestration-service/.../workflow/ContinuumWorkflow.kt:115-153`):
-    - `start()` publishes `statusReporter.publishUpdate("FINISHED")` and the COMPLETED search attribute right after `dagExecutor.run(...)`;
-    - only after that does it throw `ApplicationFailure("Workflow execution failed")` when `nodeErrorsMap` is non-empty;
-    - so the message-bridge stores `FINISHED`.
-  - This code is unchanged on `CONTNM-180` (it exists on `main`), so it is not a regression of the loops work. Loops make it more visible, because every loop failure ends here.
-  - Owner: backend developer. It is outside the loops plan, so: `SCOPE:` publish `FAILED` (and the FAILED search attribute) when `nodeErrorsMap` is non-empty.
+### Failures and findings
 
-Observation (no failure, for the backend developer / FE-1):
-- A loop node that carries the Loop's exact registered `data` (from node search) produces **no** "submitted propertiesSchema differ" warning.
-- A loop built from a hand-written `data` without schemas does get one, like any node.
-- So the warning itself is correct.
+Severity scale as in `07-backend-review.md` (BLOCKER / MAJOR / MINOR / NIT). ST-n are this report's ids; the BE task is the one the fix belongs to.
 
-### Files changed (repo `continuum-system-tests`, branch `CONTNM-180`, uncommitted)
+#### ST-1 — BLOCKER — BE-5 — the production image has no Kotlin standard library the server can find
+- **Checks failing:** image `asis` → bridge [diagnostics] ×5 (type error, error below imports, clean script, fixing clears markers, stdlib resolves). Two more diagnostics checks pass but show degraded results: `flow.` offers 7 items (18 with the library), `row.` 14 (75), `"abc".le` 1 (75).
+- **Request:** `didOpen continuum-script:/<key>.kt` with the documented script `row["a"]?.toString() + flow.get("x")` after `ready`, wait for `publishDiagnostics`.
+- **Expected / actual:** no diagnostics at all / 10 diagnostics, 5 on the user's lines, `MISSING_BUILT_IN_DECLARATION` ("Cannot access built-in declaration …"). The user sees red errors on a valid script, and fixing a real error never leaves a clean list.
+- **Cause (decompiled and confirmed by experiment):** fwcd 1.3.13 finds the stdlib only through `kotlinc` on the PATH, a Maven repository (`MAVEN_REPOSITORY`, else `MAVEN_HOME/repository`, `M2_HOME/repository`, `~/.m2/repository`; layout `org/jetbrains/kotlin/kotlin-stdlib/<ver>/kotlin-stdlib-<ver>.jar`), the Gradle cache (`GRADLE_USER_HOME` or `~/.gradle`), or `/snap/kotlin/current/lib/kotlin-stdlib.jar`. The image has none of them. The dev bundle passes only because the developer's `~/.gradle` has the library — which is also why the unit tests and a dev-bundle UI run cannot see it.
+- **Fix, verified by experiment (diagnostics 10/10, nothing else changes):** copy the jar the server already ships (`server/lib/kotlin-stdlib-2.1.0.jar`, 1.7 MB) into a Maven-layout folder inside the install (`<install>/m2/org/jetbrains/kotlin/kotlin-stdlib/2.1.0/kotlin-stdlib-2.1.0.jar`) in the Dockerfile and set `ENV MAVEN_REPOSITORY=<install>/m2` (the child process inherits the backend's environment). `~/.m2` would not work in production: the PVC mounted at `/home/continuum` hides image-owned home content. A symlink instead of a copy: NOT VERIFIED. The `.kt`/`.kts` extension runs the same server with the same lookup, so the same gap is expected there (NOT VERIFIED at run time). Alternative place for the variable: the launch spec's `env` (BE-4), which would not help the extension's server — the Dockerfile covers both.
+- **Also add a suite guard** (done: the bridge's diagnostics group fails in this state) and, ideally, a Dockerfile/CI step that runs one analysis in the built image.
 
-- `suites/api/loops.js` (new): the suite (registry, settings, structure, condition, MCP, schedules, live runs, loop-free regression).
-- `lib/loopmodel.js` (new, k6-free): loop workflow builders (`workflowNode`, `loopNode`, `edge`, `workflowOf`, `chainLoopWorkflow`), run-record readers (`nodeState`, `nodeOutput`, `errorText`, `snapshotNode`), `issuesAt`, `isNonDecreasing`, boundary inputs (`conditionOfLength`, `nestedCondition`), and MCP streamable-HTTP readers (`mcpMessage`, `mcpToolResult`).
-- `test/loopmodel.test.js` (new): 13 `node --test` cases for `lib/loopmodel.js`.
-- `lib/tenant.js`: `post()` takes optional extra headers (MCP `Accept` / `Mcp-Session-Id`), merged under the tenant headers, so they can never replace `x-continuum-user-id`. The unused `extra` request-params spread was removed.
-- `lib/config.js` + `run.sh`: `LOOP_REGISTRATION_TIMEOUT_SEC` (default 150): `setup()` waits for the orchestrator's Loop registration.
-- `Makefile`: `loops` added to `API_SUITES`.
-- `README.md`: suite table row, status line and `make api` count, known-gap table (F-1), the new env var, layout (`loopmodel.js`), and a "Loop suite: what it can and cannot run" section.
-- `AGENTS.md`: Ownership lists the new suite, lib and test; Local Contracts gain the extra-headers rule, the registration wait and default-variable steering, and the F-1 known gap.
-- `fixtures/workflows/loop-valid.json` / `loop-invalid-*.json` (planned in the test plan) were **not** added: the loop workflows are built in code from the existing fixture's node templates. Static JSON fixtures would have duplicated the node metadata and gone stale with the registry.
-- Factory-ID grep over every modified or untracked file of the repo: 0 hits.
+#### ST-2 — MAJOR — BE-3 — a document opened while the server is starting gets no diagnostics until its next edit
+- **Checks failing:** [lifecycle] "a document opened while the server is still starting gets its diagnostics once the server is ready" and "a document opened while the restarted server is starting gets its diagnostics once ready" (dev; image once the stdlib is present).
+- **Request:** connect (cold server), `didOpen` a script with `val x: Int = "a"` while the state is `starting`, wait for `ready`, wait for `publishDiagnostics` / expected an error on line 1 within 15 s / none (the document is replayed to the server at `ready`, but nothing is published until the user edits it).
+- **Precise window (dev, cold server, a document opened N ms after `ready`):** +0 ms none within 8 s; +150, +400, +800, +1500 ms diagnostics in 95-132 ms. One document and three documents opened while starting both lose their diagnostics. As shipped, the image passes these two checks only because analysis without the stdlib finishes fast and emits its (false) errors.
+- **Impact:** the first Script dialog of every session, and the first after each idle stop (10 min default), shows no markers for the script's existing content until the user types. Typing triggers a normal lint.
+- **Verified workaround from outside:** after `ready`, wait ~0.5 s and send a full-text `didChange` with the same text (next version) for each replayed document → all markers arrive ~0.9 s after `ready`; no stagger needed.
+- **Likely fix options (BE-3):** delay the replay by about 0.5 s after the readiness probe's `didClose`; or replay and then send one no-op `didChange` per document ~0.5 s after `ready`; or wait for the probe document's own `publishDiagnostics` before reporting `ready`. The exact mechanism inside fwcd is NOT VERIFIED (behaviour only).
+
+#### ST-3 — MAJOR (needs a decision) — BE-3 / BE-4 / BE-5 — a handful of open scripts fill the 512 MB heap and nothing recovers the server
+- **Check failing:** `ONLY=exhaustion` → "a server whose heap is full is replaced by the bridge while the editors stay open (a new process, or a fresh starting/ready cycle)" (dev and image, unlimited and 1 GiB).
+- **Measured:** each open 30-line script holds ≈ 21 MB of live heap; right after `ready` the live heap is ~330 MB (`jcmd <pid> GC.heap_info`). Capacity: the 9th-10th open script on the dev bundle, the 14th in the image with the stdlib. Beyond that either `-32603 … java.lang.OutOfMemoryError: Java heap space` after 12-20 s, or no answer at all for 45 s (GC thrash). The process stays alive with RSS 789-924 MB — below the 1000 MB restart ceiling — so the watchdog never restarts it; the same pid 45 s later. It recovers when documents are closed (answers in 49-296 ms), and 60 open/complete/close cycles stayed flat (no leak).
+- **Why it matters:** the ceiling the design relies on (1000 MB) is unreachable under `-Xmx512m` (RSS tops out at ~0.92 GB), and the bridge's own cap (50 documents per connection) is far above the real capacity (10-14). Realistic exposure is low for one user with one or two dialogs; it is a silent, non-self-healing failure for anyone holding many dialogs or several tabs open.
+- **Options:** raise `-Xmx` together with the pod memory (ST-4); cap open documents per backend near the measured capacity and refuse further `didOpen`s visibly; restart the server after repeated `-32603`/timeouts; shrink per-document state. The unit-level restart ceiling then needs a trigger that can actually fire (heap-based, or consecutive failures).
+
+#### ST-4 — MAJOR (needs a decision; overlaps BR-2) — docs / ops — pod memory against the 1 GiB default
+- The release note says the server "uses about 0.8 GB … capped at about 1 GB and restarted above it". Measured language-server RSS: 0.68-0.80 GB in a 1 GiB container, 0.87-0.92 GB in an unlimited container (dev bundle and image; highest 924 MB at heap exhaustion). The workbench container alone, with no editor open, is ~170 MB by its cgroup (backend 169 MB RSS and `ipc-bootstrap` 75 MB RSS, shared pages counted in both).
+- Whole container with the server under load: **0.82-0.94 GB in a 1 GiB limit (not OOM-killed; margin 8 %)**, up to 1.07 GB unlimited. The cluster manager's defaults are request 512Mi / limit 1Gi (`WorkbenchInstanceEntity.kt:30,32`). The `.kt` file route runs a second server of the same size (BR-3; not measured here).
+- The numbers in the release note should carry the pod totals (≈ 0.95 GB with one editor open, not 0.8 GB for the process alone), and the default limit needs a decision (raise it, or accept ~8 % headroom).
+
+#### ST-5 — MINOR — BE-5 — the jlink runtime lacks `java.net.http`, `java.rmi`, `java.compiler`, `java.security.jgss`
+- Probe in the image (stdlib reachable): `java.net.http.HttpClient`, `java.rmi.Remote`, `javax.tools.ToolProvider`, `org.ietf.jgss.GSSManager` → "Unresolved reference"; 20 other JDK API groups resolve (java.base, java.sql, java.logging, java.xml, java.management, java.scripting, java.naming, java.desktop, java.prefs, java.security.sasl, kotlin stdlib). Workers run a full JDK, so valid scripts show false errors in the editor.
+- Fix: add the modules to the Dockerfile's `jlink --add-modules` list (`java.net.http` costs a few MB).
+
+#### ST-6 — MINOR (reviewer: MAJOR, = BR-1) — BE-4 / BE-5 — the documented dev recipe fails
+- `KotlinServerLaunch` resolves the development install directory to `<parent of the repo>/.kotlin-ls`. `yarn download:kotlin-ls` installs into `continuum-workbench/.kotlin-ls`, so a plain `theia start` fails with "`…/.kotlin-ls/server/bin/kotlin-language-server` is missing" unless `CONTINUUM_KOTLIN_LS_HOME` is set (I had to set it). The image path is unaffected.
+
+#### ST-7 — MINOR — upstream fwcd (BE-3 may mitigate) — opening a second document drops the first one's pending analysis
+- Two documents opened ≤ 20 ms apart: the first never gets diagnostics, the second does (48-52 ms); at ≥ 100 ms apart both do. A 1500-line script followed by a small one 100 or 400 ms later: the large one never gets diagnostics (null within 20 s), the small one does; at 1500 ms apart both do. Real exposure: a large script plus a second dialog opened within ~0.4 s, or the replay at start (ST-2). Mechanism NOT VERIFIED.
+
+#### ST-8 — NIT — BE-3 — `initialize` advertises capabilities the bridge then refuses
+- The answered `initialize` lists rename, codeAction, formatting, rangeFormatting, workspaceSymbol, executeCommand, semanticTokens, inlayHint and workspaceFolders; the bridge refuses those methods with -32602. A generic client could offer features that always error.
+
+#### ST-9 — NIT (= BR-16) — BE-3 — default private workspaces directory
+- `os.tmpdir()/continuum-language-servers-<uid>/<id>` is wiped on every backend start, so two same-uid backends on one host share and delete each other's directory (I set `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` for my instance). Harmless in production (one backend per pod).
+
+#### ST-10 — NIT — BE-5 — the image's final `USER` is root
+- The image runs as root unless the platform sets a user; the cluster manager runs uid 1000 (the image keeps the 0.0.16 behaviour, identical `USER`). Everything was tested as uid 1000.
+
+#### Observations (no action requested)
+- `completionItem/resolve` with no URI passes the guard and returns -32603 (`kotlin.NotImplementedError` inside fwcd) — BR-14. It is the only server-side SEVERE entry in the final dev runs apart from the deliberate exhaustion run.
+- A completion at a position past the end of the text returns -32603 "Reached end of file before reaching char N" and writes a 17-line SEVERE stack to the backend log per request (reproduced with a probe; the 32 identical entries in the early dev log came from an early probe of mine with such positions). Monaco never sends such positions.
+- Raw clients see `Parameter 'row'/'flow' is never used` warnings on the hidden header lines; the browser client's position mapper drops them.
+- Versions: fwcd ignores a `didChange` whose version is lower than the stored one (a probe mistake of mine, not a defect).
+- The bridge's `starting` → `ready` is ~1.2-1.4 s cold on this host, both on the dev bundle and in the image.
+
+### Files changed
+
+All under `continuum-system-tests/` unless noted; nothing in a product repo.
+
+| File | Change |
+|---|---|
+| `suites/api/kotlin-lsp-bridge.mjs` (new) | the black-box bridge suite: groups `lifecycle`, `handshake`, `offline`, `diagnostics`, `packaging`, `documents`, `security`, `leak`, `memory`, `protocol`, opt-in `exhaustion`; header documents the wire protocol and every env var |
+| `suites/api/kotlin-lsp-image.mjs` (new) | docker driver for the production image: `image`, `download`, `seed`, `asis`, `experiment`; opt-in `default-idle`, `exhaustion`, `pod-limit` |
+| `lib/ws-frames.mjs`, `lib/theia-wire.mjs`, `lib/theia-client.mjs`, `lib/lsp-session.mjs`, `lib/kotlin-script.mjs`, `lib/proc-info.mjs`, `lib/runner.mjs`, `lib/image-probe.mjs` (new) | k6-free helpers: WebSocket framing, Theia/Socket.IO wire format, client, LSP session, script weaving and position mapping, `/proc` and cgroup readers, check recorder, docker-output parsers |
+| `test/{ws-frames,theia-wire,lsp-session,kotlin-script,proc-info,runner,image-probe}.test.js` (new) | 154 unit tests in total for the pure helpers (the whole `npm test`) |
+| `package.json` | `check` also syntax-checks `lib/*.mjs`, `suites/api/*.mjs`, `suites/ui/*.mjs` |
+| `Makefile` | targets `kotlin-lsp`, `kotlin-lsp-image` |
+| `README.md`, `AGENTS.md` | suite rows and a section for the two suites, run recipes, the contracts they follow; the frontend tester's rows were re-read and left intact |
+| `.claude/knowledge/{workbench.md,dev-environment.md,graph.json,change-log.md}` | see Knowledge updates |
 
 ### Commands run
 
 | Command | Result |
 |---|---|
-| `docker ps -a`; port probe 8080/8081/8083/7233/39092/35432/38080/39000/31883 | no containers, all free |
-| `docker-compose -p loops-systest -f docker/docker-compose.yml --env-file docker/.env up -d --wait <infra services>` | all healthy |
-| `./gradlew --offline -q :continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar` (platform-core) | PASS |
-| `java -jar` api-server / message-bridge / orchestration (background) | api-server health UP; orchestration published the Loop on attempt 1 |
-| `./gradlew --offline -q --init-script /tmp/loops-systest.Dtcv3h/scratch-build.init.gradle.kts --include-build ../continuum-platform-core :worker:bootJar` (feature-base) | PASS; the jar bundles CONTNM-180 commons (with `DefaultFlowVariables`) |
-| `./gradlew --offline ... -Dmaven.repo.local=<scratch> publishToMavenLocal` (first attempt to give feature-base the libs) | FAILED offline: jackson-databind 2.20.0 and commons-lang3 3.18.0 are not cached for avro-schemas' publication. Replaced by the composite build above; nothing was downloaded |
-| Manual probes (node scripts in `/tmp/loops-systest.Dtcv3h/probe/`) of validate, start, runs and MCP | used to pin the live texts before writing the checks |
-| `docker run --rm --entrypoint temporal temporalio/admin-tools:… workflow describe -w <limit-fail run>` | `Status FAILED` (diagnosis of F-1). A first attempt without `--entrypoint` hung; I removed that container (`objective_napier`, mine) |
-| `npm test` | PASS, 68/68 (55 existing + 13 new) |
-| `npm run check` | PASS |
-| `./run.sh suites/api/loops.js` (runs 2, 3, 4; run 1 had one check failing on the sampling method, which I fixed in the test) | PASS 162/162, `isolation_violations` 0, `known_gaps` 5, exit 0 |
-| `./run.sh` smoke, `api/{workflow,runs,schedules,node-explorer,data,credentials}`, `tenancy/isolation` | all PASS (10, 15, 30, 36, 19, 45, 54, 32 checks) |
-| `make api` | exit 0; all 7 API suites 100 % (loops 162/162) |
-| `kill` PIDs 17800, 17811, 17909, 18324, 19935 (18075 earlier) | all stopped |
-| `docker-compose -p loops-systest ... down` (no `-v`) | containers and network removed; volumes kept |
+| `npm test` (continuum-system-tests) | 154 tests passed |
+| `npm run check` | exit 0 |
+| `docker build -t kotlin-lsp-systest-workbench:r1 <staged context>` | exit 0 |
+| dev backend start (see Environment) | backend ready on `:3006`; stopped at the end by pid |
+| `WORKBENCH_URL=http://127.0.0.1:3006 BACKEND_PID=<pid> IDLE_TIMEOUT_SECONDS=15 LEAK_PROBE_DIR=<backend cwd> node suites/api/kotlin-lsp-bridge.mjs` | 48 passed, 2 failed, 3 skipped |
+| `… ONLY=exhaustion node suites/api/kotlin-lsp-bridge.mjs` | 2 passed, 1 failed |
+| `IMAGE=kotlin-lsp-systest-workbench:r1 BASELINE_IMAGE=projectcontinuum/continuum-workbench:0.0.16 node suites/api/kotlin-lsp-image.mjs` | 42 passed, 3 failed (asis diagnostics = ST-1; experiment lifecycle = ST-2; the experiment comparison, which lists the same two ST-2 checks as newly failing), 1 skipped (`--version`) |
+| `ONLY=default-idle …`, `ONLY=exhaustion …`, `ONLY=pod-limit …` (image driver) | idle 3 passed; exhaustion 3 passed 1 failed; pod-limit diagnostics+memory 13/13, exhaustion 2 passed 1 failed |
+| scratch probes against `:3006` and one throwaway container (`kotlin-lsp-systest-f8`, JDK-API probe) | evidence for ST-2, ST-5, ST-7 and the observations; the probes are not part of the suite and were deleted |
+| cleanup | the `:3006` workbench stopped by pid (backend 1425800, CLI 1425408, `ipc-bootstrap` 1425812); `:3005` (frontend tester) untouched and still listening; `docker rmi kotlin-lsp-systest-workbench:r1`; no `kotlin-lsp-systest-*` container, volume or image remains; scratch files in `/tmp` removed (a Round 2 needs a rebuild of the image anyway) |
 
-Logs and k6 outputs: `/tmp/loops-systest.Dtcv3h/` (`api-server.log`, `orchestration.log`, `message-bridge.log`,
-`worker.log`, `k6-run{1..4}.txt`, `k6-reg-*.txt`, `make-api.txt`, `pids.txt`).
+### NOT VERIFIED
+
+- Server `--version`: the pinned server has no such option (see AC-20).
+- The `.kt`/`.kts` extension route at run time (plugin host, activation, its own server, its stdlib lookup): needs a browser; the frontend tester's suite covers the UI. Whether opening a Script dialog also starts the extension's server (BR-3) is unconfirmed by me; the image only shows the extension and the seeded settings are present.
+- A symlink instead of a copy for the stdlib folder (ST-1 fix variant).
+- The mechanism inside fwcd behind ST-2 and ST-7 (behaviour only).
+- AC-15's dummy second language as a system check (unit-level only).
+- The dev bundle with the network blocked (replaced by the image run).
+- A real pod (PVC at `/home/continuum`, the cluster manager's limits): emulated with `docker run --memory 1g`.
+- Browser-visible behaviour (status chip, markers, Save): frontend tester.
+
+### Plain-language summary (for a user decision)
+
+1. **The production image shows wrong errors.** The Kotlin language server in the image cannot find Kotlin's own standard library, so every Script dialog would underline valid code in red and offer shortened completion lists. It works on a developer machine only because the developer's Gradle cache has the library. The fix is small and was tested: put a copy of the library (1.7 MB, already in the image) in a place the server looks, and tell it where. No decision needed except to schedule it.
+2. **The reduced Java runtime is missing a few modules** (HTTP client, RMI, compiler API, Kerberos), so valid scripts that use `java.net.http` would be underlined. Adding the modules costs a few MB. Options: add them, or accept and document.
+3. **The first dialog after the language server starts shows no error markers until the user types.** A tested workaround exists (a tiny no-op edit sent half a second after the server is ready). Options: fix it, or accept it.
+4. **A single language server holds about 10-14 open script editors before its memory is full**, and then it stops answering until editors are closed; nothing restarts it. One user with one or two dialogs will not notice. Options: raise the memory limits, cap the open scripts, or restart the server after repeated failures.
+5. **Pod memory:** the server alone uses 0.7-0.9 GB; the whole workbench pod with one editor open peaks at about 0.94 GB of the default 1 GiB limit. It survived, with about 8 % to spare. The release note says "about 0.8 GB" for the process only. Options: raise the default pod limit, or document the real total.
+6. **Developer recipe:** the documented way to start the workbench for development fails unless one extra environment variable is set (the install folder is looked up one level too high).
+
+### Knowledge updates
+
+- `.claude/knowledge/workbench.md`: new section "Testing the bridge from outside": the raw-client wire recipe (cookie, Socket.IO, multiplexer frame layout), running a second backend, running the image offline as uid 1000 with cgroup memory, the clean-context docker build, and the verified facts (fwcd's stdlib lookup and the `MAVEN_REPOSITORY` fix, JRE module gaps, the cold-start diagnostics window, heap capacity, RSS vs container limit, baseline memory, default pod limit, the dev install path).
+- `.claude/knowledge/dev-environment.md`: gotcha for black-box docker runs (uid, cgroup files, `node` through `bash -ic`).
+- `.claude/knowledge/graph.json`: nodes `kotlin-lsp-bridge-suite`, `kotlin-lsp-image-suite`; edges `system-tests` contains both, bridge suite tests `lsp-backend-bridge`, image suite runs the bridge suite and tests `kotlin-ls-packaging`; the stale "BE-4 pending" text on the `lsp-backend-bridge` → `kotlin-ls-packaging` edge replaced. Validated: 41 nodes, 48 edges, no duplicate id, no undefined endpoint.
+- `.claude/knowledge/change-log.md`: one line for these tests and their findings.
+
+---
 
 ## Round 2
 
-Date 2026-11-25. Re-check after BE fix round 1 (`03-backend-dev.md` "Round 6 — fix round 1": BR-1, BR-2, BR-3, F-1). Code under test: `continuum-platform-core` `CONTNM-180` working tree (uncommitted, rounds 1-6) and `continuum-feature-base` `main` rebuilt against it. Tests: `continuum-system-tests` `CONTNM-180` (uncommitted; no git writes).
+Date 2026-11-28. Retest of the fixes in `03-backend-dev.md` "Round 5 — fix round 1". Everything below ran against the changed code (the rebuilt dev bundle and a production image rebuilt from the working tree); nothing is marked "not verified against changed code".
+
+**Verdict: PASS, with one new MINOR finding (ST-11).** The Round 1 BLOCKER (no Kotlin standard library in the image, ST-1) is fixed: the documented clean script publishes no diagnostics in the image and the completion counts equal the dev bundle's. Both MAJOR runtime findings are fixed in behaviour: a document opened while the server starts now gets its diagnostics (ST-2), and an exhausted server is replaced by the bridge after about 51 s instead of hanging for good (ST-3). The jlink runtime now resolves `java.net.http`, `java.sql`, `java.rmi`, `javax.tools` and `org.ietf.jgss` (ST-5), `initialize` promises only what the bridge serves (ST-8), and the image grew by 6.2 MB (+0.13 %). One new defect, a side effect of the ST-2 fix: **ST-11**, the first edit after the bridge's 500 ms "nudge" is ignored by the server (self-heals on the next keystroke).
+
+Counts (Round 1 in brackets): dev bundle 61 passed / 1 failed / 3 skipped of 65 checks (48 / 2 / 3 of 53); production image as shipped, offline, uid 1000: 63 / 1 / 1 of 65 plus 1 passed in the root pass (47 / 5 / 1 of 53); the default-groups image driver run 42 / 1 / 1 of 44. The only failing check in every run is the ST-11 one; the skips are the opt-in exhaustion group (run separately, see below), the offline precondition on dev (the image run covers it), the dev packaging check (image only) and the server `--version` (the pinned server has no such option).
 
 ### Environment
 
-**Everything ran against the changed code**, the same way as round 1. `make up` was not used.
+| Item | Value |
+|---|---|
+| Dev target | my own workbench instance on `:3009` (not `:3005`, which is the frontend tester's): `bash -ic 'sdk use java 21.0.11-tem && cd continuum-workbench/continuum-workbench && ./node_modules/.bin/theia start --plugins=local-dir:./plugins --port 3009'` with `THEIA_CONFIG_DIR` and `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` in fresh temp dirs and `CONTINUUM_LANGUAGE_SERVER_IDLE_TIMEOUT_SECONDS=15`, and **no** `CONTINUUM_KOTLIN_LS_HOME` (no longer needed, ST-6). The backend bundle `lib/backend/main.js` was built 2026-11-27 23:48 (it contains `DiagnosticsNudge` and `ServerHealthMonitor`), the extension's `lib/node/*` compiled 23:47 and `.kotlin-ls` re-installed 23:36 (Maven-layout stdlib and launcher). I did not rebuild or touch `lib/`, `src-gen/` or `plugins/`. Server: fwcd kotlin-language-server 1.3.13 on the host JDK 21.0.11-tem. No platform stack. |
+| Production image | `kotlin-lsp-systest-r2-workbench:r2`, id `1ffd2d20f968`, built fresh by me from `continuum-workbench/Dockerfile` of the working tree with a clean staged context (the Round 1 image had been removed first); `docker build` exited 0. Size 4,794,793,272 bytes = 4573 MiB. |
+| How the image was run | as in Round 1: `docker run --network none --user 1000:1000` (the suite copied in and run inside as uid 1000, plus a root pass for `/app`), memory from the cgroup files; pod-like runs with `--memory 1g` and `--memory 2g` (the cluster manager's default workbench pod is now request 1Gi / limit 2Gi). Independent driver runs went in parallel against separate containers; two suites were never run against the same backend at once. |
+| Host | Linux, 16 cores, 59 GB, Docker 29.10.0, Node 24, JDK 21.0.11-tem. An unlimited container on this host lets the JVM size its initial heap at `-Xmx`, so its RSS is higher than in a small container; both are reported. |
+| Not needed / not run | k6 (plain Node client), the platform stack, a browser (frontend tester). |
 
-- **Infra:**
-  - command: `docker-compose -p loops-systest -f continuum-system-tests/docker/docker-compose.yml --env-file docker/.env up -d --wait` with postgresql, temporal, temporal-search-attributes-init, mosquitto, kafka1-3, schema-registry and minio. The `--wait` exit code was 1 only because the one-shot init container exits (it exited 0); every service was healthy;
-  - nothing was running before I started;
-  - stopped at the end with `down`, without `-v`.
-- **Builds:**
-  - all build output went to the scratch dir `/tmp/loops-systest-r2.77C4vM/gradle-build/` through an init script that redirects `layout.buildDirectory`. No repo `build/` and no `~/.m2` was touched;
-  - platform: `./gradlew --offline -q --init-script … :continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar` → OK;
-  - feature-base worker: `./gradlew --offline -q --init-script … --include-build ../continuum-platform-core :worker:bootJar` → OK. The jar bundles the CONTNM-180 `continuum-commons`, `continuum-worker-springboot-starter` and `continuum-avro-schemas` 0.0.23, with protobuf-java 3.25.5 and no cel-java.
-- **Processes**, all `java -jar` in the background and all stopped by PID at the end:
+### The six items: Round 2 against Round 1
 
-  | Service | Source | Port | PID |
-  |---|---|---|---|
-  | continuum-api-server 0.0.23 | CONTNM-180 (`CONTINUUM_CACHE_DIRECTORY` set to the scratch dir, so no new `.continuum-cache` in the repo) | 8080 | 24764 |
-  | continuum-message-bridge 0.0.23 | CONTNM-180 | 8091 | 24765 |
-  | continuum-orchestration-service 0.0.23 | CONTNM-180, `CONTINUUM_API_SERVER_BASE_URL=http://localhost:8080` | 8090 | 24821 |
-  | feature-base worker 0.0.10 | feature-base `main` built against CONTNM-180 | 8092 | 24822 |
-  | continuum-credentials-server 0.0.23 | unchanged module, existing jar (only for the credentials and smoke regression suites) | 8083 | 24859 |
+| # | Item | Round 1 | Round 2 | Evidence (image, offline, uid 1000, unless noted) |
+|---|---|---|---|---|
+| 1 | AC-5: clean-script diagnostics and completion counts on the image match the dev bundle | **FAIL, BLOCKER (ST-1)**: 10 diagnostics, 5 on the user's lines (`MISSING_BUILT_IN_DECLARATION`); `flow.` 7 items, `row.` 14, `"abc".le` 1 | **PASS (fixed)** | the clean script gives 1 publish and 0 diagnostics; `flow.` 18 items, `row.` 75, `"abc".le` 75 (length and let first) = the dev bundle. The `launcher` group shows it without the bridge: the start launcher in a minimal environment (`env -i`), no network, answers `initialize` in ~0.8 s and `"abc".le` with 75 items in ~1 s; the control (the server's own start script, no launcher, no `MAVEN_REPOSITORY`) gives 1 item. `/opt/continuum/kotlin-ls/m2/org/jetbrains/kotlin/kotlin-stdlib/2.1.0/kotlin-stdlib-2.1.0.jar` (1,690,048 bytes) has the same sha256 as the server's own jar; `MAVEN_REPOSITORY` is set by the image ENV and by the launcher. |
+| 2 | The first-open diagnostics window | **FAIL, MAJOR (ST-2)**: a document opened while the server starts (or at ready+0 ms) got nothing until its next edit | **PASS for diagnostics; new regression ST-11 (MINOR)** | lifecycle: a document opened while the server is starting, and one opened while a restarted server is starting, get their diagnostics once ready (4 diagnostics each, dev and image; both failed in Round 1). coldwindow: a script opened at ready+0, 150, 400, 490, 510, 700 and 1500 ms always gets diagnostics (the +0 ms one 0.86-0.92 s after the open, the others 58-318 ms; Round 1: none within 8 s at +0 ms). Three scripts opened back to back while a cold server starts all get diagnostics 0.86-1.07 s after ready. **ST-11** below. |
+| 3 | Memory exhaustion (10-14 open scripts) restarts the server instead of hanging | **FAIL, MAJOR (ST-3)**: never recovered, same pid 45 s later | **PASS in behaviour (fixed)** | dev: the 11th open script fails (`-32803`, no answer in 30.0 s), the bridge starts a replacement 51 s after the first failed answer and the replacement answers for 30 s straight 86 s after it. Image unlimited / 1 GiB / 2 GiB: the 16th / 13th / 13th fails; replacement after 51 s; serving 86-87 s. A 181 s soak of edits on all open scripts after the replacement: dev 133/133 and image (1 GiB) 147/147 completions served, 0 further restarts; a fresh script is served in 34 ms (dev) / 310 ms (image) once the scripts are closed. `-Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m` is unchanged in every server process. RSS in the AC-14 table. |
+| 4 | Image size delta (4 jlink modules + stdlib jar) | 4,788,550,192 bytes (4567 MiB); `/opt/continuum/kotlin-ls` 149 MB | **+6,243,080 bytes (+5.95 MiB, +0.13 %)**: 4,794,793,272 bytes (4573 MiB); `/opt/continuum/kotlin-ls` 152 MB | small, as expected. In `kotlin-ls` about +3 MB (`du`, MB-rounded): the stdlib repository 1.7 MB, the runtime 60 → 61 MB (`lib/modules` 27,833,988 bytes); the other ~3 MB of the delta is not in that folder (the app layers were rebuilt from the working tree). The driver's old "Kotlin adds -357 MB" compared against the released 0.0.16, a different build, so it was meaningless; the message is replaced. |
+| 5 | `initialize` no longer promises refused capabilities | **NIT (ST-8)**: promised features whose methods the guard refuses with -32602 | **PASS (fixed)** | a raw `initialize` (dev) and the new check on dev and image: `hoverProvider`, `completionProvider` (no resolve, trigger `.`), `signatureHelpProvider` (`(` and `,`), `definitionProvider`, `referencesProvider`, `documentHighlightProvider`, `documentSymbolProvider`, `textDocumentSync` open/close + full, `serverInfo` Kotlin Language Server 1.3.13, no workspace features. The check sends every promised method on an owned document: all 7 are answered, none is refused. (The developer's note also lists `typeDefinition` and `positionEncoding`; the cached answer has neither because the pinned server announces neither, so nothing is promised that is refused.) |
+| 6 | AC-13 / AC-20 offline on the rebuilt image | **FAIL as shipped** (ST-1 only) | **PASS except ST-11** | `--network none`, only `lo`, uid 1000: 63 passed, 1 failed (ST-11), 1 skipped (exhaustion, opt-in) of 65, root `/app` leak 1/1; per group lifecycle 11/11, coldwindow 8/9, handshake 3/3, offline 1/1, diagnostics 13/13, packaging 1/1, documents 7/7, security 12/12, leak 2/2, memory 3/3, protocol 3/3. Static image checks all pass (AC-20 below). |
 
-- **Loop registration:** orchestration log `Published built-in node registration 'org.projectcontinuum.core.builtin.Loop' (… attempt 1)`, and `task-queues` → `{"…Loop":"$builtin"}`.
-- **Base URLs:** the `lib/config.js` defaults (`http://localhost:8080`, `http://localhost:8083`). k6 v2.4.0, node v24.18.0.
-- **Temporal CLI:** there is none on the host. I used the one in the temporal container: `docker exec temporal temporal workflow {list,describe,show} --address temporal:7233`. `/tmp/loops-systest-r2.77C4vM/history-summary.py` reads each history: event types, `WORKFLOW_TASK_FAILED` count, markers, and per-node `Run` activities (decoded from the activity input).
+### AC coverage
 
-### How the multi-iteration runs are driven (user instruction: default flow variables)
+Check names are those printed by the suites (`suites/api/kotlin-lsp-bridge.mjs`, group in brackets; `suites/api/kotlin-lsp-image.mjs` for the image). Round 2 additions are listed in Appendix B.
 
-`lib/loopscenarios.js` (new, k6-free) builds every run only from feature-base nodes. The conditions read only `<prefix>.startTimestamp`, `.endTimestamp` and `.executionStatus`, with `prefix` = `defaultVariablePrefix`, a mirror of `DefaultFlowVariables.prefix`. Two facts make them deterministic. Neither depends on how long anything takes, only on the order the DAG imposes:
+| AC | Check(s) | File | Result |
+|---|---|---|---|
+| AC-5 clean script has no diagnostics (server side) | [diagnostics] 13 checks: "the documented clean script (row["a"]?.toString() + flow.get("x")) is analysed and publishes no diagnostics at all"; type error at the user's line and column (the hidden header does not shift it); error below leading imports at the user's line; "fixing the error clears the markers"; completions for `flow.` (18), `row.` (75) and `"abc".le` (75, the stdlib); hover with KDoc; signature help; **new:** classes of the Java modules a script can reasonably use resolve; `initialize` promises only features the bridge serves; image `launcher` ×3 | bridge + image | **PASS: dev 13/13, image 13/13 (offline, uid 1000).** Round 1: dev 10/10, image 5 of 10 failed (ST-1). Caveat ST-11 (the first edit after the nudge is ignored; heals on the next keystroke). |
+| AC-13 works with no outbound network | image driver `asis` (network mode `none`, only `lo`, the precondition check "this environment has no outbound network", the whole bridge suite with `--offline`); `seed` (offline start, backend answers after 0.6-0.7 s); `launcher` (LSP over stdio with no network) | image + bridge | **PASS except ST-11** (Round 1: failed through ST-1). The dev bundle was not run network-blocked (the plan only asks for it when the image build is infeasible). |
+| AC-14 RSS within the documented cap; started with `-Xmx` | [memory] "the server process is started with -Xmx512m (and the other JVM limits)"; "one editor (a 30-line script, 100 edits, 10 completions): resident memory stays below the 1000 MB restart ceiling, no restart, every answer served"; "5 editors at once"; [exhaustion] ×6 (opt-in); image `pod-limit` (1 GiB and 2 GiB), `asis` | bridge + image | **PASS** for the AC as written: argv `-Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m` in every server process of every run; RSS stayed under the 1000 MB ceiling with no restart in every run without exhaustion (table below). Exhaustion: the server is now replaced (item 3). |
+| AC-15 (runtime side) | [security] "a connection for an unknown or malformed language id is refused (channel closed by the server, nothing delivered)" (7 ids) | bridge | **PASS** for what is visible from outside: only `kotlin-script` is registered. The dummy second language (zero edits to generic code) is unit-level and cannot be shown over the wire without a test-only registration: **NOT VERIFIED** as a system check. |
+| AC-16 bridge security | [handshake] ×3 (no cookie → HTTP 400, foreign Origin → HTTP 400); [security] ×12 (19 spellings of `file:`/malformed URIs refused with -32602, nested `uri`/`*Uri` keys, 10 out-of-set methods, hostile `didOpen` produces no analysis, `initialize` cannot widen roots, wrong language id and unopened document refused, malformed JSON-RPC ignored, `shutdown`/`exit` do not stop the shared server, private server directory holds only the seeded declarations); [documents] ×7 (50-document cap, release on close and on a vanished client, full-text sync only); [leak] ×2; [protocol] ×3 | bridge | **PASS** (dev and image, offline), unchanged from Round 1. Every isolation check is paired with an owner-can-read check. |
+| AC-17 one lazy shared server, idle stop | [lifecycle] ×11, [coldwindow] ×9, image `default-idle` | bridge + image | **PASS** for processes and timing: 0 processes before the first editor; 1 process for any number of editors (ready 1.4 s cold); the same pid on reconnect; idle stop 15.3-15.5 s at a 15 s timeout and **600.4 s with the production default** (still running at 300 s); a fresh pid on the next connection. The two Round 1 lifecycle failures (diagnostics after a (re)start) pass. [coldwindow] 8/9: ST-11. |
+| AC-20 production image | image driver `image`, `download`, `launcher`, `seed` (below) | image | **PASS**, except server `--version`: **NOT VERIFIED** (the pinned 1.3.13 has no such option; the JCommander error `Was passed main parameter '--version'` proves the bundled runtime runs the server class; the version is evidenced by the marker, the jar name and `serverInfo`). |
 
-1. Inside an iteration a node starts after its parent ended. So `x.startTimestamp >= score.endTimestamp` (where `score` is the entry member that runs every iteration) is true exactly when x ran in *this* iteration.
-2. A member's variables stay in the carried set, unchanged, until it runs again. So `"x.startTimestamp" in vars` is true from the iteration after x first ran.
+**AC-14 measurements** (kernel high-water mark in brackets; the ceiling is 1000 MB; Round 1 in the last column):
 
-A nested `check: before` loop with the condition "x has not run" therefore runs x exactly once (a "once gate"). Chaining gates gives exact iteration counts.
+| Target | One editor: 2 s after a cold start / when the edits began / peak | Five editors | Margin below the ceiling | Whole container, sampled peak (anonymous) | Round 1 |
+|---|---|---|---|---|---|
+| Dev bundle (host JDK) | 613-818 / 922-931 / 931-935 MB (942-958) | 937-942 MB | 6-7 % | n/a | peak 907-909 MB (9 %) |
+| Image, unlimited container | 720-810 / 858-883 / 866-884 MB (866-884) | 868-885 MB | 11.6-13.4 % | 979-995 MB (967-983), not OOM-killed | 877 MB (12 %) |
+| Image, 1 GiB container | n/a / 748 / 762-810 MB (762) | 766 MB | 19-24 % | 900-938 MB (888-926), not OOM-killed | 795-797 MB |
+| Image, 2 GiB container | n/a / n/a / 868-873 MB | n/a | 12.7-13.2 % | 1007 MB (991), not OOM-killed | n/a |
 
-| Scenario | Shape | Result proved |
+The idle workbench container with no editor open is about 170 MB (Round 1). The container peaks sit at 0.94 GB in the 1 GiB container (cgroup `memory.peak` 942 MB including page cache, margin about 8 %) and 1.0 GB in the 2 GiB one. In the production-default idle run (`default-idle`) the container peaked at 852 MB.
+
+**Exhaustion** (opt-in group; scripts of 30 lines opened one after another until one fails; Round 1 in brackets):
+
+| Target | Failing open script | First failed answer | Replacement starts | Serving again (30 s of answers) | Server RSS peak, original / replacement | Whole container peak |
+|---|---|---|---|---|---|---|
+| Dev bundle | 11th (9th-10th) | `-32803` after 30.0 s, RSS 871 MB | 51 s after the first failed answer | 86 s after it | 905 / 968 MB (HWM 968) | n/a |
+| Image, unlimited | 16th (14th) | `-32803` | 51 s | 87 s | 831 / 869 MB | 972 MB; 3 `OutOfMemoryError` lines in the server log |
+| Image, 1 GiB | 13th (14th) | `-32803` after 30.0 s, RSS 807 MB | 51 s | 86 s | 808 / 820 MB (an earlier run 806 / 762) | 939-947 MB, not OOM-killed |
+| Image, 2 GiB | 13th | `-32803` | 51 s | not recorded | 849 / 809 MB | 975 MB, not OOM-killed |
+
+The replacement state sequence seen by the clients is `starting` then `ready` and nothing before it. The soak (180 s of edits on every open script after the replacement): dev 133 edits on 11 scripts, image (1 GiB) 147 edits on 13 scripts, every completion served, no further restart.
+
+#### AC-20 details (image, static checks all PASS)
+- Entrypoint, command, working directory, user and ports identical to `projectcontinuum/continuum-workbench:0.0.16`; environment added: `CONTINUUM_KOTLIN_LS_HOME=/opt/continuum/kotlin-ls`, `CONTINUUM_JAVA_HOME=/opt/continuum/kotlin-ls/jre`, `MAVEN_REPOSITORY=/opt/continuum/kotlin-ls/m2`; `entrypoint.sh` differs from 0.0.16's only by the added seeding lines (0 lines removed).
+- `java -version` of the bundled runtime: 21.0.13.1 (Temurin-21.0.13.1+2). The jlink runtime now has 19 modules (java.base, java.compiler, java.datatransfer, java.desktop, java.instrument, java.logging, java.management, java.naming, java.net.http, java.prefs, java.rmi, java.scripting, java.security.jgss, java.security.sasl, java.sql, java.transaction.xa, java.xml, jdk.net, jdk.unsupported; Round 1: 15), `bin` = java, jrunscript, keytool, rmiregistry (no javac, no JDK compiler module, no other Java on the PATH); the four added modules export `java.net.http`, `java.rmi`, `javax.tools` and `org.ietf.jgss`.
+- Pinned server: marker file `1.3.13 4fe7d71d087b…` equals the pin in `scripts/download-kotlin-ls.sh`, `server-1.3.13.jar` present; the server's own start script runs on the bundled runtime.
+- Download guard: a tampered archive is rejected (exit 1, "checksum mismatch", nothing installed); an unreachable location installs nothing (curl exit 37). No download at run time (the offline runs).
+- fwcd.kotlin 0.2.36, vscode.git and vscode.git-base are bundled in the plugin folder.
+- Seeding (verified in the image with the home folder on a volume, as the pod's PVC): the settings land in `/home/continuum/.continuum`, the folder Theia logs as its configuration directory. `kotlin.languageServer.path` (= the launcher `<install>/bin/kotlin-language-server`) and `kotlin.java.home` (= `<install>/jre`) are rewritten on every start; `kotlin.languageServer.enabled`, `kotlin.java.opts`, `kotlin.scripts.enabled` and `kotlin.debugAdapter.enabled` are written only when absent (the user's font size and heap choice survived). `kotlin.java.opts` only affects the file-editor extension's server; the bridge's own launch spec carries `-Xmx512m`. A first start with no settings writes every default (`-Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m`). A settings file with comments, trailing commas and `//` inside a string is merged and rewritten as plain JSON, the original is kept once as `settings.json.continuum-backup`, a repeat run changes nothing and leaves no temporary file. An unparsable file: exit 1, a message on stderr, the file byte-identical, no first-run marker, and the container still starts and serves (0.7 s, the entrypoint logs "could not seed"). `yarn start` runs the seed first (read in `package.json`; running it was not done because it writes the real `~/.continuum`).
+
+### Results by run
+
+| Run | Target and setup | Result |
 |---|---|---|
-| 3 iterations | `seed → [L: score → {I1: m1}, {I2 (after m1): m2}] → after → [V: obs]`. L's condition: "m1 or m2 ran in this iteration" | true, true, false → L "Finished after 3 iterations". The observer loop V, after the loop, reads `m1.start < m2.start < score.start` from what `after` inherited: SUCCESS after 1 iteration only if `after` got the carried set (m1 from iteration 1, m2 from iteration 2); otherwise MISSING_VARIABLE → FAILED |
-| check before, 2 iterations | `[L before: score → {I1: m1}]`, condition `!(m1 ran) \|\| m1 ran in this iteration` | true before 1, true after 1, false after 2 |
-| member fails in iteration 2 | gate I2 (opens once m1 ran) holds `bad` (invalid JSON) | L FAILED "stopped in iteration 2: node 'I2' failed." |
-| non-boolean in iteration 2 | `m1 ran in this iteration ? true : score.executionStatus` | iteration 1 true, iteration 2 `"SUCCESS"` |
-| carried overrides outside | outside `src-x` and member `src_x` both export `createTableNode_src_x.*`. A gate J inside L opens only for the member's value (start after `pre` ended) | J opens in iteration 2 → L "Finished after 2 iterations". If the outside value had won, L would fail at its limit of 3 |
-| later member wins | `c-1 → mid → c_1` inside L (same prefix). The condition `c_1.start < mid.end` is false only for the later member's value | "Finished after 1 iterations" |
+| Dev full | `:3009`, all default groups, `BACKEND_PID`, `IDLE_TIMEOUT_SECONDS=15`, `LEAK_PROBE_DIR` = the backend's cwd | 61 passed, 1 failed (ST-11), 3 skipped, 65 checks |
+| Dev cold window | `ONLY=coldwindow` | 8 passed, 1 failed (ST-11), 9 checks |
+| Dev exhaustion and soak | `ONLY=exhaustion EXHAUSTION_SOAK_SECONDS=180` | 6 passed (replacement after 51 s, 133/133 completions during the soak, 0 further restarts) |
+| Image, default groups | driver with `image`, `download`, `launcher`, `seed`, `asis` | 42 passed, 1 failed (ST-11 inside `asis`), 1 skipped (`--version`), 44 checks; `asis` = bridge suite 63 / 1 / 1 of 65 plus root pass 1/1; container peak 995 MB, not OOM-killed; the server log has 0 OOM lines |
+| Image as shipped, repeated | `ONLY=asis`, final suite | 63 / 1 / 1 of 65, root 1/1; container peak 979 MB |
+| Image static and seed | `image`, `download`, `launcher`, `seed` | all pass (`seed` 12 checks), 1 SKIP (`--version`) |
+| Image in 1 GiB and 2 GiB | `ONLY=pod-limit POD_LIMIT_GIB=1,2` | 16 passed, 0 failed, neither container OOM-killed |
+| Image in 1 GiB with a soak | `ONLY=pod-limit POD_LIMIT_GIB=1 EXHAUSTION_SOAK_SECONDS=180` | 8 passed, 0 failed: diagnostics 13/13, memory 3/3, exhaustion 6/6 (13th script fails, replacement after 51 s, 147/147 completions in the soak, fresh script in 310 ms) |
+| Image, production idle timeout | `ONLY=default-idle` | 3 passed; lifecycle 10 passed, 1 skipped; the server stopped after 600.4 s, still running at 300 s |
+| Image exhaustion, unlimited | `ONLY=exhaustion` | passed: the 16th script fails, replacement after 51 s, serving after 87 s |
 
-Probed with node scripts first (`probe/designs*.mjs`), then written as k6 checks. 3 suite runs, all identical.
+### Failures and findings
 
-### AC coverage (round 2)
+Severity scale as in Round 1 (BLOCKER / MAJOR / MINOR / NIT). ST-n are this report's ids; the BE task is the one the fix belongs to. One check fails; every other Round 1 failure passes.
 
-Final run: **213/213 checks passed** (162 in round 1), `isolation_violations` 0, **no `known_gaps` samples** (all `knownGap()` calls removed). 3 consecutive runs plus the one inside `make api`: all 213/213.
+#### ST-11 — MINOR — BE-3 — the first edit after the bridge's diagnostics nudge is ignored by the server (regression from the ST-2 fix)
+- **Check failing:** [coldwindow] "the first edit after the bridge re-sent the open documents is applied by the server (document version 2, as an editor numbers it; diagnostics update and a completion sees the new text)" — dev `:3009` and image (every run).
+- **Request:** connect to a cold server; `didOpen` a script with an error at version 1 (the open comes 0, 150, 400 or 490 ms after the `ready` notice); wait for its first diagnostics; send a full-text `didChange` at version 2 that fixes the error, then `textDocument/completion` at the new text. Version 2 is how Continuum's own browser client numbers the first edit (`VirtualDocument` starts at 1 and increments on every update).
+- **Expected / actual:** the markers are cleared and the completion sees the new text / the old markers stay and the completion fails with `-32603 Internal error.`; the next version (3) is applied. A script opened 510 ms or later after `ready` behaves correctly. The server's own log has one `RuntimeException: Reached end of file before reaching char 29` per affected offset (4 per run): the completion ran against the stale, shorter text.
+- **Cause (source):** `DiagnosticsNudge.ts:33` re-sends every open document 500 ms after `ready` as a full-text `didChange` with `version: document.version + 1`, but nothing records that version: the bridge's own `OpenDocument.version` stays at v while the server now stores v+1. fwcd ignores a change whose version is not above the stored one, and the client's next edit is exactly v+1. It applies to each document that is open when the nudge fires: after every cold start, idle restart and crash/OOM restart (the replay sends `didOpen` with the recorded version, then the nudge sends +1).
+- **Impact:** the first keystroke after the server (re)starts is not analysed for each editor that was already open: a stale marker, or one failed completion/hover (`-32603`), until the next keystroke, which carries the whole text and puts everything right. The editor's text is never affected. The effect in the real browser is NOT VERIFIED (the frontend tester could cross-check).
+- **Fix options (not prescribed):** keep one monotonic bridge→server version per document and rewrite the `version` of every forwarded `didOpen`/`didChange` including the nudge; or nudge with `didClose` + `didOpen` of the same text instead of a versioned change; or bump the recorded version when nudging and offset the client's following versions. `ONLY=coldwindow` reproduces it in about 30 s on a cold server and is the regression check.
 
-| AC | Check name(s) (verbatim, `suites/api/loops.js`) | Result |
+#### ST-12 — NIT — BE-6 — a UTF-8 byte-order mark in the user's `settings.json` makes the seeding give up
+- **Check:** [seed] "a settings file saved with a UTF-8 byte-order mark (measurement)".
+- **Observed:** the seed script exits 1 ("is not valid JSON (even allowing comments); left unchanged"), the file stays untouched and no `globalStorage/fwcd.kotlin` marker is written; the container still starts and serves; the `.kt` editor stays unconfigured (first-run download prompt) until the file is saved without the mark. A BOM is unlikely in a file Theia writes itself (some Windows editors add it). Suggested: drop a leading U+FEFF before parsing.
+
+#### Observations (not defects)
+1. **A replaced server is as loaded as the one it replaces.** The restart replays every open document, so the replacement starts at capacity again. On the dev bundle (full JDK) it peaked at 968 MB RSS, 32 MB under the 1000 MB ceiling that would restart it again (back-off 1 s doubling, at most 3 restarts); in the image 820-869 MB. No second restart in any 181 s soak. The capacity itself is unchanged (11th script on dev, 13th-16th in the image): the restart is a recovery, not a limit.
+2. **The outage window is long.** From the first unanswered request to a serving server takes about 85 s (30 s request timeout, the third failure 51 s after the first, then the restart), and the clients see no state change meanwhile (`starting` then `ready` only after the replacement), just `-32803` answers. One or two dialogs cannot get there. Not verified: what the status chip shows in that window (frontend).
+3. The server's error log shows only what the probes cause: 4 × `Reached end of file before reaching char 29` per run (ST-11) and 1 × `InvocationTargetException` / `NotImplementedError` (`completionItem/resolve` without a URI passes the guard and fails inside the server with -32603; unchanged from Round 1). No `OutOfMemoryError` line in a run without exhaustion; 3 in the unlimited exhaustion run.
+4. **Log hygiene, from reading the source only (NOT VERIFIED at run time):** `ClientMessageGuard.ts` puts the client's `method` string (unbounded) and the first offending URI (cut at 200 characters) into the WARN line `Refused client message: …` without removing control characters, so a client that holds the connection token could add lines, including forged-looking ones, to the backend log. Low risk (the client is the pod's own user): NIT.
+5. **Pod memory with two servers (arithmetic, NOT measured):** one language server peaked at 0.94 GB container-wide in the 1 GiB container and 1.0 GB in the 2 GiB one. If the user also opens a `.kt` file in the file editor, the extension starts a second server of the same kind: about 0.17 GB (idle workbench) + 2 × 0.76-0.94 GB = 1.7-2.05 GB, 79-96 % of the new 2 GiB default. The frontend tester's browser suite is the place to measure it.
+6. **Modules outside the 19:** a class from a module the reduced runtime does not ship is reported unresolved in the editor. Measured for `com.sun.net.httpserver` (module `jdk.httpserver`): "Unresolved reference: net" in the image, resolved on the dev bundle's full JDK (this is the control that shows the JDK-module check can discriminate). By the same mechanism, not tested one by one: `javax.sql.rowset`, `javax.xml.crypto`, `jdk.management`. The workers run a full JDK, so only the editor would underline such a script.
+
+### Round 1 findings: status now
+
+| Id | Round 1 | Round 2 |
 |---|---|---|
-| F-1 fix: the 5 failed-loop runs recorded FAILED (AC-18 fail, AC-22a, AC-22c, AC-44 fail, AC-19) | "<what>: the run is recorded FAILED" for: the limit with fail, a missing variable, a string > int comparison, a non-boolean result with fail, a failing member (plus the same check for the new iteration-2 member failure, the iteration-2 non-boolean with fail, and the slow condition) | PASS. The known gap is gone: these are now real checks |
-| F-1 fix: loop-free run with a failed node | "a loop-free run whose node fails: the node is FAILED and the node after it SKIPPED"; "a loop-free run whose node fails is recorded FAILED"; "the run list filter status==FAILED finds the failed run" | PASS. Temporal agrees: `WORKFLOW_EXECUTION_FAILED` for every one of them, and the search attribute `Continuum:ExecutionStatus` is 3 |
-| AC-16 (live) multi-iteration stop | "the three-iteration loop over default timestamps is valid"; "a condition true in iterations 1 and 2 ends the loop SUCCESS \"Finished after 3 iterations\""; "while the three-iteration loop runs it shows \"Iteration k of 10\""; "after the three-iteration loop the node after it ran and the run is FINISHED" | PASS. Temporal history: `score` ran 3 times; `after` and `obs` once. This is not the literal paging example: `hasMore` cannot be set by any feature-base node. The 3-iteration stop, the single run of the node after the loop and the FINISHED run are the same behaviour |
-| AC-17 check before | round-1 zero-iteration checks; new: "check before with a condition that turns false after 2 iterations: loop SUCCESS \"Finished after 2 iterations\""; "check before, two iterations: the run is FINISHED" | PASS. History: `score` ran exactly 2 times |
-| AC-18 limit policies | round-1 checks plus "the limit with fail: the run is recorded FAILED" | PASS |
-| AC-19 member failure in iteration 2 | "a member failing in iteration 2 fails the loop (FAILED) with the $error \"Loop 'L' stopped in iteration 2: node 'I2' failed.\""; "…: the node after the loop is SKIPPED"; "…: the run is recorded FAILED"; "…: the nested loop holding it is FAILED naming the node" | PASS. History: `score` 2 runs (no iteration 3), `bad` 1 |
-| AC-20 nested 2 x 3, inner count | round-1 nested checks (outer WARNING at 2, inner WARNING at 3, FINISHED, iteration messages, progress) | PASS. The inner count was **verified from the Temporal history, not by a k6 check**: `score` 6 runs and `split` 6 runs, `seed` and `after` 1 each (runs `b2340cde…` and `88a1d19e…`). It cannot be checked over HTTP, because the run record keeps only the last iteration. Reset of statuses and edges between iterations: covered indirectly (every multi-iteration run re-ran its members and ended with consistent statuses); field-level reset stays [unit] |
-| AC-21 carried variables | "the three-iteration loop shows as $variable the set carried into iteration 3 (m1 from iteration 1, then m2 from iteration 2)"; "the node after the loop inherits the last iteration's carried variables (the observer loop reads m1 < m2 < score and stops after 1 iteration)"; "in iteration 2 the entry member sees the carried value, not the outside value of the same name (loop ends after 2 iterations)"; "on a carried name clash the member later in run order wins (the condition reads its value: loop ends after 1 iteration)"; round 1: "the finished loop stores the variables carried into its last iteration as its display $variable" | PASS. **BR-1 confirmed fixed live**: the node after the loop received m1's variables, which only iteration 1 set |
-| AC-22 runtime semantics | (a)-(d) as in round 1, plus the run is recorded FAILED for (a) and (c) | PASS for (a)-(d). (e) NOT VERIFIED live: only Long and String values were driven. The `inputCount`/`outputCount` maps exist but no check reads them |
-| AC-44 onNonBooleanResult in iteration 2 | "a non-boolean result in iteration 2 with fail fails the loop (FAILED) with the $error \"Loop 'L': the condition returned a string (\"SUCCESS\") in iteration 2, …\""; "…: the node after the loop is SKIPPED"; "…: the run is recorded FAILED"; "a non-boolean result in iteration 2 with treat-as-false ends the loop WARNING after iteration 2"; "with treat-as-false in iteration 2 the node after the loop runs and the run is FINISHED"; round-1 `before` checks | PASS. These now run in iteration 2, as the plan specifies |
-| BR-2 empty loop at 10,000 | "the empty loops validate with a \"has no nodes inside it\" warning each"; "an empty loop at maxIterations 10,000 ends WARNING without an iteration"; "a loop holding only an empty loop ends WARNING without an iteration, the inner loop SKIPPED"; "next to empty loops the other nodes run and the run is FINISHED within 30 s" | PASS. Message "The loop has no nodes inside it to run; it ran no iteration". History: 57 events (54 in the probe), **0 markers**, only `seed` and `after` ran, 0 workflow-task failures |
-| BR-2 loop around only an unconnected node at 10,000 | "a loop whose only member cannot run ends SKIPPED \"No node inside the loop could run in iteration 1\""; "the skipped member and the node after the skipped loop are SKIPPED"; "a loop skipped for nothing to run does not fail the run (FINISHED within 30 s)" | PASS. History: **13 events**, 0 markers, no activity run |
-| BR-3 slow condition, 200 ms budget | "the slow condition is accepted by the validator"; "a condition slower than the time budget fails the loop (FAILED) with the $error \"Loop 'L': the condition check in iteration 1 failed with LIMIT_EXCEEDED…\""; "…: the node after the loop is SKIPPED"; "…: the run is recorded FAILED"; "the slow condition's $error says it took longer than 200 ms"; "the slow condition fails the run within 30 s (no wedged workflow task)" | PASS. Full `$error`: "Loop 'L': the condition check in iteration 1 failed with LIMIT_EXCEEDED: the condition exceeded a cost limit: the condition took longer than 200 ms to evaluate (column 20).". Temporal: `WORKFLOW_EXECUTION_STATUS_FAILED`, 52 events (55 in the probe), 1 marker, **`WORKFLOW_TASK_FAILED` 0**. The orchestration log has 0 `PotentialDeadlock`, 0 `NonDeterministic` and 0 ERROR lines |
-| All 26 workflows of one loop-suite run | — | Temporal: `WORKFLOW_TASK_FAILED` = 0 in every history. COMPLETED ↔ record FINISHED and FAILED ↔ record FAILED, one to one |
-| AC-6, AC-7, AC-9, AC-10, AC-13, AC-14 (MCP), AC-24, AC-25, AC-3, schedule validation, tenant isolation | unchanged round-1 checks | PASS (`isolation_violations` 0) |
-| AC-11 loop-free unchanged + regression | "a workflow without loops still runs to FINISHED"; `make api`, smoke and isolation (below) | PASS |
-| AC-5 retry, AC-23, AC-26, AC-27, AC-42, AC-43 | — | NOT VERIFIED: not system-testable, as in round 1 (unit-tested by the developer) |
+| ST-1 BLOCKER | no Kotlin standard library in the image | **Fixed** (item 1) |
+| ST-2 MAJOR | no diagnostics for a document opened while the server starts | **Fixed** for diagnostics; **new ST-11 (MINOR)** is a side effect of the nudge |
+| ST-3 MAJOR | heap exhaustion never recovered | **Fixed in behaviour** (replacement after 51 s, item 3); capacity unchanged, observations 1-2 |
+| ST-4 MAJOR | pod memory tight against the 1 GiB default | addressed by the separate change of the default pod to request 1Gi / limit 2Gi; measured here: container 0.94 GB (1 GiB limit, not OOM-killed) and 1.0 GB (2 GiB). Two servers at once: observation 5. The release-note wording was not re-checked. |
+| ST-5 MINOR | the jlink runtime lacks `java.net.http`, `java.rmi`, `java.compiler`, `java.security.jgss` | **Fixed** (19 modules; scripts importing those packages resolve); other modules stay absent by design (observation 6) |
+| ST-6 MINOR | dev install path one folder too high | **Fixed** (my `:3009` backend ran without `CONTINUUM_KOTLIN_LS_HOME` and found `continuum-workbench/.kotlin-ls`) |
+| ST-7 MINOR | a second document opened within ~20 ms drops the first one's diagnostics (upstream fwcd) | **Not re-measured** (steady state, upstream); three documents opened while the server starts now all get diagnostics |
+| ST-8 NIT | `initialize` over-advertised | **Fixed** (item 5) |
+| ST-9 NIT | the default workspaces folder is wiped at start, so two same-uid backends collide | unchanged; I still set `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` per instance |
+| ST-10 NIT | final `USER root` (identical to 0.0.16) | unchanged; the suite runs as uid 1000 like the cluster manager's pod |
 
-### Failures
+### Files changed
 
-None. No check failed in any run, and there are no known gaps left. Nothing to send to the backend developer.
+| File | Change |
+|---|---|
+| `lib/lsp-capabilities.mjs`, `test/lsp-capabilities.test.js` (new, 6 tests) | what an `initialize` answer promises, and a probe request per promise |
+| `lib/lsp-stdio.mjs`, `test/lsp-stdio.test.js` (new, 9 tests) | JSON-RPC over stdio (Content-Length framing): message encoder/parser and a small client, used to talk to the start launcher |
+| `suites/api/kotlin-lsp-bridge.mjs` | new group `coldwindow` (sweep of open offsets after a cold start, the first-edit check, several documents while starting); new checks for the promised capabilities and for Java-module resolution (+ a measurement control); the opt-in `exhaustion` group rewritten (watch after the failure, a soak after the replacement; env `EXHAUSTION_WATCH_SECONDS`, `EXHAUSTION_SOAK_SECONDS`, `EXHAUSTION_DOCUMENTS`, `COLDWINDOW_OFFSETS_MS`); the header documents every group and env var |
+| `suites/api/kotlin-lsp-image.mjs` | new groups `launcher` and `pod-limit` (`POD_LIMIT_GIB`); `image`, `seed` and `exhaustion` follow the fixed behaviour (module list and exports, stdlib = server jar, launcher, ENV, the seed contract and its edge cases); a `SUITE_TUNING` pass-through of tuning variables into the container run; the size message no longer compares with the released image |
+| `lib/image-probe.mjs`, `test/image-probe.test.js` | `seededSettingsProblems` follows the new seed contract (launcher path, bundled runtime, other defaults) |
+| `README.md`, `AGENTS.md` | my rows only: suites, libs, env vars, groups, tests, image-suite contract; the frontend tester's rows were re-read and left intact |
+| `.claude/knowledge/{workbench.md,dev-environment.md,graph.json,change-log.md}` | see Knowledge updates |
 
-Observations, not failures:
-- Worker ERROR log lines (10) come only from the deliberately invalid `CreateTable` nodes (`bad`, `seed` in the failing-node scenarios).
-- The round-1 leftover `continuum-platform-core/.continuum-cache/workflow-data/` (git-ignored) is still there; this round created nothing in the repos.
-
-### Files changed (repo `continuum-system-tests`, branch `CONTNM-180`, uncommitted; on top of round 1)
-
-- `lib/loopscenarios.js` (new, k6-free):
-  - `defaultVariablePrefix` / `defaultVariable` (mirror of `DefaultFlowVariables.prefix`), `varRef`, `varSet`, `conditionVariableNames`;
-  - the scenario builders `threeIterationLoop`, `beforeTwoIterationsLoop`, `memberFailsInIteration2Loop`, `nonBooleanInIteration2Loop`, `carriedOverridesOutsideLoop`, `laterMemberWinsLoop`, `emptyLoops`, `unconnectedMemberLoop`, `slowConditionLoop` (`SLOW_CONDITION`) and `failingNodeWithoutLoop`.
-- `test/loopscenarios.test.js` (new): 6 `node --test` cases. Among them: the prefix rule on the KDoc examples, the scenario shapes and the variables each condition reads.
-- `suites/api/loops.js`:
-  - removed the `knownGap` import and call;
-  - `failedLoop` now asserts "the run is recorded FAILED" and takes an optional loop id;
-  - new sections `multiIterationChecks` and `nothingToRunChecks`, with the helpers `scenario`, `runAll` and `recordSpanMs`;
-  - `loopFreeChecks` gained the failed-node run and the `status==FAILED` list filter;
-  - header comment updated.
-- `README.md`:
-  - the suite table row;
-  - Known gaps: back to "no open gaps", with the failed-run fix added to the list;
-  - layout gains `loopscenarios.js`;
-  - "Loop suite: what it can and cannot run" rewritten (timestamp steering, once gates; run counts only in the Temporal history).
-- `AGENTS.md`:
-  - Ownership: `lib` and `test` list `loopscenarios`;
-  - the k6-free rule now covers `loopscenarios.js`;
-  - the loop-suite contract: default-variable steering, the prefix mirror to change together, conditions deterministic by DAG order only;
-  - the F-1 known-gap contract is replaced by "a failed run must be recorded FAILED".
-- Factory-ID grep over every modified and untracked file: 0 hits.
+`npm test` now runs 170 tests (Round 1: 154). No production code was changed.
 
 ### Commands run
 
 | Command | Result |
 |---|---|
-| `docker ps -a`; port probe | nothing running |
-| `docker-compose -p loops-systest … up -d --wait <infra>` | all healthy (the init container exited 0) |
-| platform `bootJar` ×3 (`--offline`, scratch build dir) | OK |
-| feature-base `:worker:bootJar` (`--offline`, `--include-build ../continuum-platform-core`, scratch build dir) | OK; CONTNM-180 libs in the jar |
-| `java -jar` ×5 (background) | api-server UP; the Loop published on attempt 1 |
-| `node probe/multi.mjs`, `probe/designs.mjs`, `probe/designs2.mjs` | every design ended as intended (see scenario table) |
-| `docker exec temporal temporal workflow describe/show/list …`, `python3 history-summary.py <ids>` | event counts, 0 `WORKFLOW_TASK_FAILED`, per-node run counts (quoted above) |
-| `npm test` | PASS 74/74 (68 + 6 new) |
-| `npm run check` | PASS |
-| `./run.sh suites/api/loops.js` ×3 | 213/213, `isolation_violations` 0, no known gaps, exit 0 |
-| `make api` | exit 0: workflow 15/15, runs 30/30, schedules 36/36, node-explorer 19/19, data 45/45, credentials 54/54, loops 213/213 |
-| `./run.sh smoke` | 10/10, exit 0 |
-| `./run.sh tenancy` | 32/32, `isolation_violations` 0, exit 0 |
-| `kill` 24764 24765 24821 24822 24859 | all stopped (verified with `kill -0`) |
-| `docker-compose -p loops-systest … down` (no `-v`) | containers and network removed; no containers left |
+| `npm test` (continuum-system-tests) | 170 tests passed |
+| `npm run check` | exit 0 |
+| `docker build -t kotlin-lsp-systest-r2-workbench:r2 <staged context>` | exit 0, id `1ffd2d20f968`, 4,794,793,272 bytes |
+| dev backend start (Environment) | backend ready on `:3009` (backend pid 1633104, CLI pid 1632687); stopped at the end by pid |
+| `WORKBENCH_URL=http://127.0.0.1:3009 BACKEND_PID=<pid> IDLE_TIMEOUT_SECONDS=15 LEAK_PROBE_DIR=<backend cwd> node suites/api/kotlin-lsp-bridge.mjs` | 61 passed, 1 failed, 3 skipped (65 checks) |
+| `… ONLY=coldwindow …` | 8 passed, 1 failed |
+| `… ONLY=exhaustion EXHAUSTION_SOAK_SECONDS=180 …` | 6 passed |
+| a raw `initialize` probe on `:3009` (scratch, not part of the suite) | capabilities as in item 5 |
+| `NAME_PREFIX=kotlin-lsp-systest-r2 IMAGE=kotlin-lsp-systest-r2-workbench:r2 BASELINE_IMAGE=projectcontinuum/continuum-workbench:0.0.16 node suites/api/kotlin-lsp-image.mjs` | 42 passed, 1 failed (ST-11), 1 skipped (44 checks) |
+| `… ONLY=asis …` (twice) | 63 passed, 1 failed, 1 skipped (65) + root 1/1, both times |
+| `… ONLY=seed …`, `… ONLY=launcher …` | 12 passed; 3 passed |
+| `… ONLY=pod-limit POD_LIMIT_GIB=1,2 …` | 16 passed, 0 failed |
+| `… ONLY=pod-limit POD_LIMIT_GIB=1 EXHAUSTION_SOAK_SECONDS=180 …` | 8 passed, 0 failed |
+| `… ONLY=default-idle …`, `… ONLY=exhaustion …` | 3 passed; passed |
+| cleanup | the `:3009` workbench stopped by pid (CLI 1632687, then backend 1633104), no Kotlin JVM left, `:3005` (frontend tester) untouched and still listening; `docker rmi kotlin-lsp-systest-r2-workbench:r2`; no `kotlin-lsp-systest-*` image, container or volume remains (the pre-existing `projectcontinuum/*` images and exited platform containers are not mine and were not touched); scratch dirs under `/tmp/kotlin-lsp-systest-r2-*` removed; no `systestleak*` file left in the backend's cwd |
 
-Logs and outputs: `/tmp/loops-systest-r2.77C4vM/`. It holds the service logs, `k6-run{1,2,3}.txt`, `make-api.txt`, `k6-smoke.txt`, `k6-isolation.txt`, `history-run1.txt`, `list-run1.json`, `probe/` and `pids.txt`.
+### NOT VERIFIED
+
+- Server `--version`: the pinned server has no such option (see AC-20).
+- The `.kt`/`.kts` extension route at run time (plugin host, its own server): needs a browser, the frontend tester's suite covers it. What is verified here: the seeded path is the launcher, the launcher finds the stdlib with no network, the seed runs and is repeatable. That the extension's server then really starts through it in the plugin host: not verified by me.
+- The ST-11 effect in the real browser, and what the status chip shows during the ~85 s exhaustion window.
+- ST-7 (second document opened within ~20 ms in steady state): not re-measured.
+- A real pod (PVC, the cluster manager's limits, other containers' memory): emulated with `docker run --memory 1g|2g`.
+- `yarn start` seeding at run time (writes the real `~/.continuum`).
+- AC-15's dummy second language as a system check (unit-level only).
+- `$/cancelRequest` reaching the server after a timeout (not visible from outside).
+- Both servers (bridge and file-editor extension) in one pod: arithmetic only (observation 5).
+- Modules outside the 19 other than `jdk.httpserver`, one by one (observation 6); the log-hygiene note (observation 4) is from the source, not from a run.
+- The dev bundle with the network blocked (replaced by the image run).
+
+### Plain-language summary (for a user decision)
+
+1. **The blocker is fixed.** The production image now checks scripts exactly like a developer build: the documented clean script shows no errors, completion lists are complete, and it all works with no network. The image is 6 MB bigger. Nothing to decide.
+2. **One new small glitch, caused by the fix for "no markers when the editor opens first".** Half a second after the language server starts (or restarts), the bridge sends every open script a harmless "please re-check", but it numbers that message so that the server throws away the user's very next keystroke in each editor that was already open. For that one keystroke the red markers or the completion list can be stale or missing (a completion can fail once); the next keystroke puts everything right and no text is ever lost. Options: fix it (a small change in the bridge, the new check confirms it), or accept it.
+3. **Running out of memory now heals itself, slowly.** With too many scripts open (11 on a developer machine, 13-16 in the image) the server stops answering; the bridge notices after about 80 seconds and replaces it, and the editors work again. One user with one or two dialogs never gets near it. The replacement starts as full as the old server, which on a developer machine means up to 968 MB of the 1000 MB at which the bridge would restart it once more (the image stays at 820-870 MB). Options: leave it, or later cap the number of open scripts and announce a "degraded" state earlier than after 80 seconds.
+4. **The reduced Java runtime now has the modules that scripts reasonably use** (HTTP client, SQL, RMI, compiler API, Kerberos). Classes from modules that are still absent, for example the built-in HTTP server, would be underlined in the editor although they run fine on the workers. Options: accept (rare), or add modules for a few MB each.
+5. **Memory of the pod:** the new default (1 GiB requested, 2 GiB limit) fits one language server with room to spare (whole container about 1.0 GB). If a user also opens a Kotlin *file* in the file editor, a second language server of the same size starts and the pod could come close to 2 GiB (arithmetic, not measured). Options: measure it once in the browser, give the file-editor server a smaller memory setting, or raise the limit.
+6. **Tiny:** a user settings file saved with a byte-order mark leaves the Kotlin file editor unconfigured until it is re-saved. A one-line fix when convenient.
+
+### Knowledge updates
+
+- `.claude/knowledge/workbench.md`: section "Testing the bridge from outside" brought up to round 2: the stale round 1 facts replaced (stdlib via the Maven-layout copy and the launcher, 19 runtime modules, the first-diagnostics window and ST-11 with its cause and fix options, heap exhaustion -> replacement after ~51 s with the measured capacities and RSS, `initialize` capabilities, image size delta, dev install path fixed), plus new bullets for the seed contract (and ST-12), the log-hygiene note and the two-server pod arithmetic (NOT VERIFIED); recipes updated (own backend on a spare port without `CONTINUUM_KOTLIN_LS_HOME`, new groups and env vars, parallel driver runs); the packaging paragraph's "NOT VERIFIED" for real-server/Docker runs now points to this section.
+- `.claude/knowledge/dev-environment.md`: stop a dev backend by pid (the backend was still listening right after `kill <cli pid>` in round 2: kill both pids, check the port); `ps -eo ... --ppid` is a union, use `ps -o ... --ppid` or `pgrep -P`; the black-box image-run bullet gained the per-round name prefix and the `--memory` emulation. (The `CONTINUUM_KOTLIN_LS_HOME` corrections were already in the page.)
+- `.claude/knowledge/graph.json`: suite node docs updated (groups, env, round 2 results); new nodes `lsp-capabilities-lib`, `lsp-stdio-lib`, `kotlin-settings-seed` (the seed contract and the BOM NIT) and `diagnostics-nudge-version-collision` (the ST-11 finding with cause, check and fix options), with 5 edges; `lsp-backend-bridge` and `kotlin-ls-packaging` docs gained the round 2 facts. Validated: valid JSON, 51 nodes, 65 edges, unique kebab-case ids, every edge endpoint defined.
+- `.claude/knowledge/change-log.md`: one line for Round 2.
+
+---
 
 ## Round 3
 
-Date 2026-11-26. Re-check after BE fix round 2 (`03-backend-dev.md` "Round 7 — fix round 2": BR-9, the bounded wait on condition evaluation). Code under test: `continuum-platform-core` `CONTNM-180` working tree (uncommitted, rounds 1-7) and `continuum-feature-base` `main` rebuilt against it. Tests: `continuum-system-tests` `CONTNM-180` (uncommitted; no git writes).
+Date 2026-11-28 (after 01:20 IST). Short retest of `03-backend-dev.md` "Round 6 — fix round 2": ST-11 (the first edit after the bridge's diagnostics nudge was ignored) and ST-12 (a byte-order mark in `settings.json` made the seeding give up). Everything below ran against the changed code: the dev bundle `lib/backend/main.js` (workbench build #4, 2026-11-28 01:11:22) and a production image rebuilt from the working tree (same sources); nothing is marked "not verified against changed code".
+
+**Verdict: PASS. ST-11 and ST-12 are fixed and verified; no check fails and there is no new product finding.** The first edit after the nudge (document version 2) now clears the stale markers and a completion sees the new text at every open offset (+0 … +1500 ms after the ready notice), on the dev bundle and in the image; a new check shows that a mistake typed as the very first edit gets its red marker at the typed line 0.3-0.5 s later. The seed script accepts a leading BOM (exit 0, valid file afterwards) on the host and in the image, including through the entrypoint. One environment finding that is **not** a product defect (ST-13): the local Docker tag `projectcontinuum/continuum-workbench:0.0.16` was overwritten at 01:06 IST by a local build of the working tree, so it is no longer a pre-feature baseline; the image driver now SKIPs its baseline comparisons for such a baseline, and I took the baseline from the registry by digest.
+
+Counts (Round 2 in brackets): dev bundle 63 passed / 0 failed / 3 skipped of 66 checks (61 / 1 / 3 of 65); dev exhaustion regression 6 / 0 (6 / 0); image driver, default groups, 49 / 0 / 1 of 50 (42 / 1 / 1 of 44), of which the bridge suite inside the offline image as uid 1000 65 / 0 / 1 of 66 plus 1 passed in the root pass (63 / 1 / 1 of 65 plus 1). The skips: the dev run skips `offline` (it has network; the image run covers it), `packaging` (image only) and `exhaustion` (opt-in, run separately); the image run skips `exhaustion` (opt-in) and the server `--version` (the pinned server has no such option).
 
 ### Environment
 
-**Everything ran against the changed code.** `make up` was not used.
-
-- **Infra.** The same as round 2: `docker-compose -p loops-systest -f docker/docker-compose.yml --env-file docker/.env up -d --wait <postgresql temporal temporal-search-attributes-init mosquitto kafka1-3 schema-registry minio>`. All were healthy. Nothing was running before. Stopped at the end with `down`, without `-v`.
-- **Builds.** `--offline`, with all output in the scratch dir `/tmp/loops-systest-r3.4ls9Vt/gradle-build/` (init script redirecting `layout.buildDirectory`). No repo `build/` and no `~/.m2` were touched.
-  - platform: `./gradlew --offline -q --init-script … :continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar` → OK;
-  - feature-base worker: `./gradlew --offline -q --init-script … --include-build ../continuum-platform-core :worker:bootJar` → OK.
-  - The orchestrator jar contains round-7 code: `TimeBoxedConditionEvaluationRunner.class`, `EvaluationInterruptCheck` in the nested `continuum-loop-condition-0.0.23.jar`, and `evaluationTimeExceededDetail` in commons.
-- **Processes.** All `java -jar` in the background with explicit `SERVER_PORT`s, and all stopped by PID at the end (list in `pids.txt`):
-
-  | Service | Port | PID(s) |
-  |---|---|---|
-  | api-server (CONTNM-180; `CONTINUUM_CACHE_DIRECTORY` in the scratch dir) | 8080 | 47551 |
-  | message-bridge (CONTNM-180) | 8091 | 47552 |
-  | orchestration-service (CONTNM-180) on the host, unthrottled | 8090 | 47589 → 48771 → 48897 → 49098 → 49836 (restarts after each stop test) |
-  | orchestration-service (the same jar) in container `loops-systest-orch-throttled`, `--cpus=0.5` | — | removed at the end |
-  | feature-base worker 0.0.10 (built against CONTNM-180; `CONTINUUM_NODE_TASK_QUEUE=CONTINUUM_FEATURE_BASE_TASK_QUEUE`) | 8092 | 47674 |
-  | credentials-server 0.0.23 (unchanged module, existing jar, dev master key from `docker/docker-compose.yml`) | 8083 | 50941 |
-
-- **Start-up mistakes, corrected before any result was taken:**
-  - My first start had no `SERVER_PORT`. The credentials server took 8080, and the api-server, bridge and credentials server were stopped (47112-47114).
-  - The first worker (47590) exited because `CONTINUUM_NODE_TASK_QUEUE` was unset.
-  - The first credentials server (47561) had no `CREDENTIALS_ENCRYPTION_MASTER_KEY`. The first `make api` / smoke / tenancy runs failed only on credential creation; they were re-run after the fix (both outputs are kept).
-- **Base URLs:** the `lib/config.js` defaults. k6 v2.4.0, node v24.18.0. Temporal CLI via `docker exec temporal temporal …`.
-
-### Item 1: the review's one-call shape, live
-
-**The literal shape cannot be built live:**
-- No feature-base node sets a flow variable of the user's choosing. `grep setFlowVariable` over feature-base finds 0 hits, and `KotlinScriptNodeModel` gets no `ExecutionContext`.
-- A run cannot be started with initial variables.
-- The only list- or map-valued default variables are `inputCount` / `outputCount`, which are maps with one or two entries.
-
-So `sets.equivalent(vars["a"], vars["b"])` over two ~9,000-element list variables is **NOT VERIFIED live** (it is unit- and Temporal-tested by the developer).
-
-**Closest live shape: one cel-java call built from literals.** I timed candidates with `jshell` against the orchestrator jar's own libraries (`CelLoopConditionEvaluator`, scratch dir only):
-
-| Literal condition | One evaluation |
+| Item | Value |
 |---|---|
-| `cel.bind(s, "%s".format([lists.range(10000)]).split(", "), sets.equivalent(s, s.reverse()))` | 320-360 ms |
-| `sets.intersects` over two disjoint 9,000 / 10,000-string lists | 195 / 245 ms |
-| **`sets.intersects(a8, b7)`**: `a8` = 256 copies of `lists.range(10000)`, `b7` = 128 copies of `lists.range(9999) + [0]`, built by `cel.bind` doublings (477 characters, nesting under 32, every list ≤ 10,000 elements) | **1,173 ms** (one call, no early exit) |
-| the same at (8,8) / (9,8) / (9,9) | 2.4 s / 4.8 s / 9.4 s |
+| Dev target | my own workbench instance on `:3010` (not `:3005`, which is the frontend tester's; it was never touched): from `continuum-workbench/continuum-workbench`, `bash -ic 'sdk use java 21.0.11-tem && … ./node_modules/.bin/theia start --plugins=local-dir:./plugins --port 3010'` with `THEIA_CONFIG_DIR` and `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` in fresh temp dirs, `CONTINUUM_LANGUAGE_SERVER_IDLE_TIMEOUT_SECONDS=15`, the config dir seeded first with `scripts/seed-kotlin-settings.js`, the output redirected into a log file, and **no** `CONTINUUM_KOTLIN_LS_HOME`. Backend pid 1797276 (child of CLI pid 1796718). `lib/backend/main.js` is 166,716 bytes, 2026-11-28 01:11:22, and has 5 lines that mention `nextServerVersion`. I did not rebuild or touch `lib/`, `src-gen/` or `plugins/`. Server: fwcd kotlin-language-server 1.3.13 on the host JDK 21.0.11-tem. No platform stack. |
+| Production image | `kotlin-lsp-systest-r3-workbench:r3`, id `d82b9ded7039`, built fresh by me from `continuum-workbench/Dockerfile` of the working tree with a clean staged context (3.2 MB, 369 files; the Round 2 image had been removed). `docker build` exited 0 after **1 min 54 s** (the Kotlin download and jlink layers were cached; `yarn install` 49 s, `turbo build` 24 s). Size 4,794,791,656 bytes = 4573 MiB. Inside: `/app/lib/backend/main.js` is 166,716 bytes with the same 5 `nextServerVersion` lines as the dev bundle (the hash was not compared), `/opt/continuum/seed-kotlin-settings.js` has the BOM strip, the bundled `java -version` is 21.0.13.1. |
+| Baseline (pre-feature release) | the registry's `projectcontinuum/continuum-workbench@sha256:2c44cb8ab9d1388683fc060e8013e207c77e4ee7e28b5456273a481bc5570716` (amd64, 16 layers, 1,018 MB compressed, 4,378,995,222 bytes), pulled by digest in 1 min 40 s (this does not touch the local tag) and tagged `kotlin-lsp-systest-r3-baseline:0.0.16`. Confirmed pre-feature: no `/opt/continuum/seed-kotlin-settings.js`, an entrypoint without the seeding. Why not the local tag: ST-13. |
+| How the image was run | as in Round 2: `docker run --network none --user 1000:1000` (the suite copied in and run inside as uid 1000, plus a root pass for `/app`), memory from the cgroup files; only the unlimited container in Round 3 (the 1 GiB / 2 GiB and exhaustion runs were not repeated, see NOT VERIFIED). |
+| Host | unchanged from Round 2 (Linux, 16 cores, 59 GB, Docker 29.10.0, Node 24, JDK 21.0.11-tem). |
+| Not needed / not run | k6 (plain Node client), the platform stack, a browser (frontend tester). |
 
-So **`oneLongCallCondition(8, 7)`** is the live equivalent of the review's 1.3 s call. It is the same kind of cost: one uninterruptible O(n·m) `sets.*` call that the between-values budget cannot stop.
+### The items: Round 3 against Round 2
 
-**Live result, unthrottled host orchestrator** (run `49289ffd`, plus 3 suite runs):
-- Validate: `valid=true`, no error on L.
-- The loop is FAILED: `$error` "Loop 'L': the condition check in iteration 1 failed with LIMIT_EXCEEDED: the condition exceeded a cost limit: the condition took longer than 200 ms to evaluate." There is no "(column N)", which shows the orchestrator's wait fired, not the evaluator's own budget. `after` is SKIPPED.
-- The run record is **FAILED** (not RUNNING), 2.7 s after creation.
-- Temporal history: `WORKFLOW_EXECUTION_FAILED`, **0 `WORKFLOW_TASK_FAILED`**, 0 timed out, **1 marker**. The workflow task that recorded the marker took **287 ms**.
-- Orchestrator log: exactly **one WARN** for the run: "Loop 'L': the condition check in iteration 1 of workflow '49289ffd-…' (run '3c06f1a4-…') did not finish within 250 ms; it fails with LIMIT_EXCEEDED and its evaluation thread was interrupted". No value and no condition text in it. 0 TMPRL1101, 0 ERROR.
-
-### Item 2: CPU throttling
-
-**How I throttled:**
-- I stopped the host orchestrator and ran the **same jar** in a container: `docker create --name loops-systest-orch-throttled --cpus=0.5 --memory=1g --network temporal-network … eclipse-temurin:21-jre java -jar /orch.jar`, then `docker cp` the jar in and start it.
-- Verified inside the container: cgroup `cpu.max` = `50000 100000` (0.5 CPU, the chart's 500m), `nproc` = 1, `UseContainerSupport=true`. So the JVM sees 1 processor.
-- The start-up line said "warmed up in 627 ms, with 4 evaluation threads" (220 ms on the host).
-
-| Scenario (all on the throttled orchestrator) | Loop / run | Histories | Recording task | Log |
+| # | Item | Round 2 | Round 3 | Evidence |
 |---|---|---|---|---|
-| 1 × `oneLongCall(8,7)`, then 1 × the `sets.equivalent` string shape | FAILED / FAILED, budget text | 0 WT failed, 0 timed out, 1 marker each | 516 ms, 413 ms | 1 WARN each |
-| plus 2 shell busy-loops inside the container (sharing the 0.5 CPU, container at 51 %), 4 concurrent `oneLongCall(8,7)` | 4 × FAILED / FAILED, budget text | 0 WT failed, 1 marker each | 498-574 ms | 4 WARN |
-| the busy-loops plus **8 concurrent ~2.4 s calls** (`(8,8)`, pool of 4 saturated) | 8 × FAILED: 4 with the budget text, 4 with "… all 4 condition evaluation threads of the orchestrator are busy" | 0 WT failed, 1 marker each | 525-921 ms | 4 "did not finish", 4 "all 4 are busy" |
+| 1 | **ST-11:** the first edit after the nudge is applied | **FAIL (MINOR)**: `coldwindow` 8/9; 4 `Reached end of file before reaching char 29` lines per run in the server log | **PASS (fixed)**: `ONLY=coldwindow` 9/9 with the Round 2 suite unchanged; 10/10 with the new typed-error check, in the full dev run and in the image | A script opened +0, 150, 400, 490, 510, 700 and 1500 ms after a cold server became ready gets its diagnostics, its first edit (document version 2) clears them, and a completion at the end of the new text offers `length`: at all 7 offsets, on dev and in the image (image: diagnostics 828 ms after the open at +0, 81-296 ms at the others; three scripts opened while the server starts get theirs 876-877 ms after ready). **New check:** a clean two-line script is open while the cold server starts, and after the nudge the first edit (version 2) appends `val oops: Int = "typed"`: a severity-1 `Type mismatch: inferred type is String but Int was expected` at 0-based line 2, column 16, 506 ms after the edit on dev and 306 ms in the image, with no error above it. The image's server log has 0 `Reached end of file` lines. The first-edit check was already a hard assertion in Round 2 (`dropped.length === 0`; it failed), so nothing had to be hardened. |
+| 2 | **ST-12:** a BOM in `settings.json` | **NIT**: the seed script exited 1 and left the file alone (a measurement only) | **PASS (fixed)** | Host, the new `seedscript` group 4/4: BOM + plain JSON: exit 0, the mark is gone, valid JSON, the user's keys kept, the seeded keys right, the first-run marker written, no `.tmp` left, no backup; BOM + commented file: merged, the backup (86 bytes) is identical to the original including the mark; a file holding only a BOM counts as empty and gets the defaults; BOM + broken JSON: exit 1, the file byte-identical, no marker. In the image, `seed` 14/14 including three BOM checks (direct plain-JSON, commented with identical backup bytes, and end to end through the entrypoint on a volume: the backend answers, the file is valid and mark-free, no `could not seed`). The Round 2 "(measurement)" check is now three normal checks. |
+| 3 | Regression: the whole dev bridge suite | 61 / 1 / 3 of 65 | **63 / 0 / 3 of 66** | lifecycle 11/11, coldwindow 10/10, handshake 3/3, diagnostics 13/13, documents 7/7, security 12/12, leak 1/1, memory 3/3, protocol 3/3; skipped: offline (this run has network), packaging (image only), exhaustion (opt-in). |
+| 4 | Regression: memory exhaustion on the dev bundle (the restart replay now carries server-side versions) | 6 / 0 | **PASS 6 / 0** | The 11th open script fails (`-32803` after 30.0 s, RSS 903 MB); the replacement starts 51 s after the first failed answer and serves 86 s after it (the clients see `starting` then `ready`); a 60 s soak of edits on all 11 scripts: 46/46 completions served, 0 further restarts; a fresh script is served in 35 ms once the scripts are closed. |
+| 5 | Image rebuilt; the driver's default groups | 42 / 1 / 1 of 44 | **49 / 0 / 1 of 50**, exit 0 | image 10 (+1 skip), download 2, launcher 3, seedscript 4, seed 14, asis 16; the skip is the server `--version`. The first run, with the local tag as baseline, had one failure, a baseline artefact (ST-13), not a product failure; see the runs table. |
+| 6 | `asis`: the bridge suite inside the offline image as uid 1000 | 63 / 1 / 1 of 65, root 1/1 | **65 / 0 / 1 of 66, root 1/1** | `--network none`, only `lo`. lifecycle 11, coldwindow 10, handshake 3, offline 1, diagnostics 13, packaging 1, documents 7, security 12, leak 2, memory 3, protocol 3; the skip is `exhaustion` (opt-in). The container was not OOM-killed and the backend kept running. The server's error log has 0 `OutOfMemoryError` and 1 `InvocationTargetException` / `NotImplementedError` (the known `completionItem/resolve` without a URI). |
+| 7 | Image size | 4,794,793,272 bytes | 4,794,791,656 bytes (−1,616) | The fix touches only the bundled backend and the seed script. Against the genuine release see "Image size" below. |
 
-Whole throttled log: **0 `TMPRL1101`, 0 `PotentialDeadlockException`**, 0 `NonDeterministic`. The 33 ERROR lines are all "Unable to send status … application context is not ready (or stopped)" during the final `docker stop` (shutdown noise from the progress signal handler, not a loop fault).
+### AC coverage
 
-The slowest recording task under throttling plus saturation was 921 ms, under Temporal's 1 s detector but with little margin. That margin is the scheduling delay of 4 evaluation threads plus the workflow threads on 0.5 CPU, not the condition. It did not trip the detector in any run.
+Check names are those printed by the suites (`suites/api/kotlin-lsp-bridge.mjs`, group in brackets; `suites/api/kotlin-lsp-image.mjs` for the image). The Round 2 table lists them in full; Round 3 additions are in Appendix C.
 
-### Item 3: start-up line and stop time
-
-- **Every orchestrator start** (5 host starts plus the container) logged "Loop condition evaluator installed and warmed up in 205-627 ms, with 4 evaluation threads".
-- **Stopping during a running loop is not held up:**
-
-  | Stop | What was running | Exit after SIGTERM |
-  |---|---|---|
-  | host, `kill -TERM`, 1 | a 40-iteration loop at iteration 7 + 3 runs with ~2.4 s calls just started | 585 ms |
-  | host, 2 | a 300-iteration loop at iteration 7 + 6 runs with ~2.4 s calls, 150 ms after their start | 547 ms |
-  | host, 3 | SIGTERM right after the first "did not finish within 250 ms" WARN, so 3 abandoned ~2.4 s evaluations were still running on the evaluation threads | 541 ms |
-  | container, `docker stop -t 30` | a 200-iteration loop + 4 runs with ~2.4 s calls | 1,974 ms (exit code 143, no SIGKILL) |
-
-- **After every stop the interrupted runs resumed on the next orchestrator and ended correctly:**
-  - the 40- and 300-iteration loops ended FINISHED, "Stopped at the limit of 40/300 iterations", with 40 and 300 markers, `score` run 40 and 300 times;
-  - every slow run ended FAILED with 1 marker.
-- **No workflow-task failures, only task timeouts during the stops:**
-  - Across all **160** workflows of this round: **`WORKFLOW_TASK_FAILED` = 0**.
-  - The 15 `WORKFLOW_TASK_TIMED_OUT` events all fall in the stop windows (22:14:32-22:15:00 and 22:22:11-12 UTC) on runs that were in flight at a stop.
-  - That is Temporal re-dispatching tasks of a stopped worker. Expected; not a fault.
-
-### Item 4: regression
-
-| Suite | Result |
-|---|---|
-| `./run.sh suites/api/loops.js` ×3 | **220/220** each (213 from round 2 + 7 new), `isolation_violations` 0, no `known_gaps`, exit 0 |
-| `make api` | exit 0: workflow 15/15, runs 30/30, schedules 36/36, node-explorer 19/19, data 45/45, credentials 54/54, loops 220/220 |
-| `./run.sh suites/smoke.js` | 10/10 |
-| `./run.sh suites/tenancy/isolation.js` | 32/32, `isolation_violations` 0 |
-| Temporal, the 27 workflows of loops run 1 | 0 `WORKFLOW_TASK_FAILED`. The round-2 BR-3 macro shape (`cbb5c38c`): FAILED, 1 marker, recording task 268 ms (the evaluator's own budget fired, "(column 20)"). Multi-iteration and paging-style loops all COMPLETED, as in round 2 |
-
-### AC coverage (round 3)
-
-| Item / AC | Check name(s) / evidence | File | Result |
+| AC | Check(s) | File | Result |
 |---|---|---|---|
-| (1) BR-9 / AC-43: one long call fails the loop at the budget, the run FAILED, no wedge | "the one-long-call condition is accepted by the validator"; "one function call longer than the time budget fails the loop (FAILED) with the $error \"Loop 'L': the condition check in iteration 1 failed with LIMIT_EXCEEDE...\""; "one function call longer than the time budget: the node after the loop is SKIPPED"; "one function call longer than the time budget: the run is recorded FAILED"; "the one-long-call $error says it took longer than 200 ms"; "the one-long-call condition fails the run within 30 s (no wedged workflow task)"; plus history (0 WT failed, 1 marker) and log (1 WARN "did not finish within 250 ms") by hand | `suites/api/loops.js`, `lib/loopscenarios.js` | **PASS** with the literal one-call shape (1.17 s per call). The review's literal `sets.equivalent(vars["a"], vars["b"])` over two 9,000-element list variables: **NOT VERIFIED live** (no node can set list variables; unit/Temporal-tested) |
-| (2) the same under CPU throttling, no TMPRL1101 | probe runs on the `--cpus=0.5` container (single, concurrent with CPU burn, pool saturated) | `/tmp/…/probe/onecall.mjs` (probe, not in the suite) | **PASS**: 0 TMPRL1101 / PotentialDeadlockException, 0 WT failed, every run FAILED with 1 marker |
-| (3a) start-up "with 4 evaluation threads" | orchestrator logs | — | **PASS** (6 of 6 starts) |
-| (3b) stop during a running loop is not held up | SIGTERM timing (table above) | — | **PASS**: 541-585 ms on the host, 1.97 s in the throttled container, also with abandoned evaluations running. The interrupted runs completed correctly on the next orchestrator |
-| (4) round-6 checks: BR-3 macro shape ~260 ms, paging/multi-iteration loops finish | all 213 round-2 checks | `suites/api/loops.js` | **PASS** (×3 + `make api`) |
-| Round-2 ACs (AC-3, 6, 7, 9, 10, 11, 13, 14, 16-22, 24, 25, 44, BR-1/2/3, F-1, tenant isolation) | unchanged round-2 checks | `suites/api/loops.js`, other suites | **PASS** |
-| AC-5 retry, AC-23, AC-26, AC-27, AC-42, AC-43 (evaluator list) | — | — | NOT VERIFIED: not system-testable, as before |
+| AC-5 clean script has no diagnostics (server side) | [diagnostics] ×13 (the documented clean script publishes no diagnostics at all; type error at the user's line and column; error below leading imports; fixing clears the markers; completions for `flow.` 18, `row.` 75, `"abc".le` 75; hover; signature help; Java-module classes resolve; `initialize` promises only served features); [coldwindow] ×10 incl. the new typed-error check; image `launcher` ×3 | bridge + image | **PASS: dev 13/13 and 10/10, image 13/13 and 10/10 (offline, uid 1000).** The Round 2 caveat (the first edit after the nudge ignored) is gone. |
+| AC-13 works with no outbound network | image driver `asis` (network mode `none`, only `lo`, the precondition check "this environment has no outbound network", the whole bridge suite with `--offline`); `seed` (offline start, backend answers after 0.6-0.7 s); `launcher` | image + bridge | **PASS** (Round 2: PASS except ST-11). The dev bundle was not run with the network blocked (the image run covers it). |
+| AC-14 RSS within the documented cap; started with `-Xmx` | [memory] ×3; [exhaustion] ×6 (opt-in, dev) | bridge + image | **PASS**: argv `-Xmx512m -XX:+UseSerialGC -XX:ReservedCodeCacheSize=64m -XX:MaxMetaspaceSize=192m` in every server process, the replacement included; one editor and five editors stayed under the 1000 MB restart ceiling with no restart (table below). |
+| AC-15 (runtime side) | [security] "a connection for an unknown or malformed language id is refused" (7 ids) | bridge | **PASS** for what is visible from outside (only `kotlin-script` is registered). The dummy second language (zero edits to generic code) is unit-level: **NOT VERIFIED** as a system check. |
+| AC-16 bridge security | [handshake] ×3, [security] ×12, [documents] ×7, [leak] ×1 (dev) / ×2 (image), [protocol] ×3 | bridge | **PASS** (dev and image, offline), unchanged. Every isolation check is paired with an owner-can-read check. |
+| AC-17 one lazy shared server, idle stop | [lifecycle] ×11, [coldwindow] ×10 | bridge | **PASS** on dev and in the image: 0 processes before the first editor, one process for any number of editors, the same pid on reconnect, idle stop at the 15 s test timeout (not before), a fresh pid on the next connection, and documents opened while a cold or restarted server starts get their diagnostics. The production-default 600 s idle run was not repeated (Round 2: 600.4 s). |
+| AC-20 production image | image driver `image` ×10 (+1 skip), `download` ×2, `launcher` ×3, `seedscript` ×4, `seed` ×14 | image | **PASS**, except the server `--version`: **NOT VERIFIED** (the pinned 1.3.13 has no such option). The image starts like the pre-feature release (entrypoint, command, working directory, user and ports identical; environment added: `CONTINUUM_KOTLIN_LS_HOME=/opt/continuum/kotlin-ls`, `CONTINUUM_JAVA_HOME=/opt/continuum/kotlin-ls/jre`, `MAVEN_REPOSITORY=/opt/continuum/kotlin-ls/m2`) and `entrypoint.sh` differs from the release's only by the seeding lines (removed 0, added a comment and the `node /opt/continuum/seed-kotlin-settings.js` line with its "could not seed" fallback), which is exactly the 3 lines `git diff HEAD -- entrypoint.sh` shows in `continuum-workbench`. Both comparisons ran against the genuine release by digest. |
 
-### Failures
+**AC-14 measurements** (kernel high-water mark in brackets; the ceiling is 1000 MB; Round 2 in the last column):
 
-No check failed. One **finding from a probe** (not a k6 check), for the backend developer:
-
-- **F-2 (BE-15 / BR-9 follow-up, cross-tenant): one tenant's slow conditions fail another tenant's ordinary loop.**
-  - Request:
-    - tenant `systest-probe-r3-tenantA` starts 4 runs whose condition is `oneLongCallCondition(9, 9)`, one cel-java call of about 9.4 s. It is valid (546 characters), and the validator gives no warning about its cost;
-    - as soon as those 4 checks are abandoned (4 "did not finish within 250 ms" WARNs), tenant `systest-probe-r3-tenantB` starts a plain loop with `vars["anomalyDetectorZScoreNode_score.executionStatus"] == "SUCCESS"`, `maxIterations` 3, `stop-with-warning`;
-    - probe `/tmp/loops-systest-r3.4ls9Vt/probe/crosstenant.mjs`, unthrottled host orchestrator.
-  - Expected: tenant B's loop stops at its limit with WARNING and the run is FINISHED. That is the result on an idle orchestrator (round-2 checks).
-  - Actual: tenant B's run `9c6fdb2b-…` is **FAILED**. Loop L `$error`: "Loop 'L': the condition check in iteration 1 failed with LIMIT_EXCEEDED: the condition exceeded a cost limit: the condition could not be evaluated in time: all 4 condition evaluation threads of the orchestrator are busy."
-  - The history records the failure: 1 marker, `WORKFLOW_EXECUTION_FAILED`. A retry of B's run would fail again until the abandoned calls return.
-  - The same happened unprompted under throttling: a 200-iteration plain loop started while 4 earlier abandoned calls still ran failed in iteration 1 (run `496f3eef-…`).
-  - Cause:
-    - the 4-thread pool is shared by all workflows and tenants;
-    - an abandoned call keeps its thread until the cel-java function returns. The interrupt is seen only between values, and the developer documents this as the "residual limit";
-    - text and element caps bound one call only to about 2.4 s at (8,8), 4.8 s at (9,8) and 9.4 s at (9,9), all well under 2,048 characters;
-    - so 4 cheap-to-write conditions starve every other loop on that orchestrator for seconds per check, and each re-run of them renews the block. The developer's note says this "only affects runs whose condition is itself that slow". That is not true across runs or across tenants: the busy outcome is recorded on the victim's run.
-  - Owner: backend developer. Possible directions, for the orchestrator to raise with the user, since the user chose "timeout via executor":
-    - bound the cost of one `sets.*` / list-equality call before it runs (fix option (b) from the BR-9 review: metered/hashed `sets.*`, or an argument-size cap);
-    - and/or do not fail an innocent check when the pool is busy: give each workflow its own slot, or fall back to evaluating a check on the workflow thread when the check is cheap;
-    - and/or document it as a known limit in the Upgrade notes.
-
-Observations, not failures:
-- Under 0.5 CPU with the pool saturated, a recording workflow task took up to 921 ms (detector: 1 s). No TMPRL1101 occurred, but the margin is thin on a throttled pod.
-- The 33 shutdown ERRORs "Unable to send status … application context is not ready (or stopped)" come from the progress-signal handler while the context stops. Not loop-specific.
-- The round-1 leftover `continuum-platform-core/.continuum-cache/` (git-ignored) is still there; this round created nothing in the repos.
-
-### Files changed (repo `continuum-system-tests`, branch `CONTNM-180`, uncommitted; on top of rounds 1-2)
-
-- `lib/loopscenarios.js`:
-  - `oneLongCallCondition(doublingsA, doublingsB)`: one `sets.intersects` over two lists of 10,000-element lists, built by `cel.bind` doublings;
-  - `ONE_LONG_CALL_CONDITION` (= (8,7));
-  - `oneLongCallLoop`.
-- `test/loopscenarios.test.js`: the new builder in the nothing-to-run test, plus 1 new test (one `sets.` call, ≤ 2,048 characters, nesting ≤ 32, reads no variable, the exact text at (1,0)).
-- `suites/api/loops.js`: the 'one long function call' scenario in `nothingToRunChecks` (validator check, `failedLoop`, budget text, within 30 s); import; section comment.
-- `README.md`: suite table row; "Loop suite: what it can and cannot run" gains the time-budget bullet (why the real-world shape is not drivable).
-- `AGENTS.md`: the loop-suite contract names the two variable-free time-budget conditions and their caps.
-- Factory-ID grep over the changed files: 0 hits.
-
-### Commands run
-
-| Command | Result |
-|---|---|
-| `docker ps -a`; port probe | nothing running |
-| `docker-compose -p loops-systest … up -d --wait <infra>` | all healthy, exit 0 |
-| platform `bootJar` ×3 and feature-base `:worker:bootJar` (`--offline`, scratch build dir, `--include-build`) | OK |
-| `java -jar` api-server / bridge / credentials / orchestration / worker | see Environment (3 start-up corrections) |
-| `jshell --class-path <orchestrator BOOT-INF/lib> probe{1..9}.jsh` | the timing table in item 1 |
-| `node probe/onecall.mjs intersects87 1` (host) | FAILED / FAILED, budget text, 1 WARN, 0 WT failed, 1 marker, 287 ms task |
-| `node probe/longloop.mjs`, `onecall.mjs intersects88 N`, `kill -TERM <orchestrator>` ×3, timed | exit 585 / 547 / 541 ms; the runs completed after a restart |
-| `docker create --cpus=0.5 …` + `docker cp` + `docker start`; `cat /sys/fs/cgroup/cpu.max`, `nproc` | 50000 100000, 1 CPU |
-| `onecall.mjs` ×(1, 1, 4 with burn, 8 with burn) on the container | all FAILED / FAILED, 0 TMPRL1101, 0 WT failed |
-| `docker stop -t 30 loops-systest-orch-throttled` | 1,974 ms, exit 143 |
-| `node probe/crosstenant.mjs` (host) | F-2 reproduced |
-| `python3 history-summary.py`, `task-timing.py` (per history: WT failed / timed out, markers, recording-task ms) | quoted above; all 160 workflows: 0 WT failed |
-| `npm test` | PASS 75/75 (74 + 1 new) |
-| `npm run check` | PASS |
-| `./run.sh suites/api/loops.js` ×3 | 220/220, exit 0 |
-| `make api` (after the credentials key fix) | exit 0, all 7 suites 100 % |
-| `./run.sh suites/smoke.js`, `suites/tenancy/isolation.js` | 10/10, 32/32 |
-| `kill` 47551 47552 49836 47674 50941; `docker rm loops-systest-orch-throttled` | all stopped (`kill -0` verified; the bridge took 8-18 s to exit on SIGTERM, no `kill -9` needed) |
-| `docker-compose -p loops-systest … down` (no `-v`) | no containers left; ports free |
-
-Logs and outputs: `/tmp/loops-systest-r3.4ls9Vt/`:
-- `orchestration-{1..5}.log`, `orchestration-throttled.log`, `api-server.log`, `message-bridge.log`, `worker.log`, `credentials{-1,}.log`;
-- `k6-run{1,2,3}.txt`, `make-api.txt`, `k6-smoke.txt`, `k6-isolation.txt` (and the `*-1-credentials-misconfigured.txt` first attempts);
-- `probe-*.txt`, `history-*.txt`, `stop-timing.txt`, `list-all.json`, `probe/`, `jsh/`, `pids.txt`.
-
-## Round 4
-
-Date 2026-11-26. Final re-check after BE fix round 3 (`03-backend-dev.md` "Round 8 — fix round 3" plus "Round 8 addendum": the own-run rule was removed, and every busy-pool case is now retried). I used the addendum's "For the system tester" list. Code under test: `continuum-platform-core` `CONTNM-180` working tree (uncommitted, rounds 1-8 plus the addendum) and `continuum-feature-base` `main` rebuilt against it. Tests: `continuum-system-tests` `CONTNM-180` (uncommitted; no git writes).
-
-### Environment
-
-**Everything ran against the changed code.** `make up` was not used.
-
-- **Infra:** the same as rounds 2-3, `docker-compose -p loops-systest -f docker/docker-compose.yml --env-file docker/.env up -d --wait` with postgresql, temporal, temporal-search-attributes-init, mosquitto, kafka1-3, schema-registry and minio. All were healthy and nothing was running before. Stopped at the end with `down`, without `-v`.
-- **Builds** (`--offline`; all output in the scratch dir `/tmp/loops-systest-r4.pfJvoH/gradle-build/` through an init script that redirects `layout.buildDirectory`; no repo `build/` and no `~/.m2` touched):
-  - platform: `./gradlew --offline -q --init-script … :continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar` → OK;
-  - worker: `./gradlew --offline -q --init-script … --include-build ../continuum-platform-core :worker:bootJar` (feature-base) → OK.
-  - The orchestrator jar holds the addendum code: `workflow/loop/EvaluationTicket.class` is present and `AbandonedEvaluations` is gone. `TimeBoxedConditionEvaluationRunner` has the texts "; nothing is recorded and the workflow task is retried" and "are held by abandoned evaluations".
-- **Processes:** all `java -jar` in the background with explicit `SERVER_PORT`s, every one stopped by PID at the end (`pids.txt`). The round-3 start-up settings were applied from the first start, so there were no start-up corrections this time.
-
-  | Service | Port | PID |
-  |---|---|---|
-  | api-server (`CONTINUUM_CACHE_DIRECTORY` in the scratch dir) | 8080 | 82185 |
-  | message-bridge | 8091 | 82186 |
-  | credentials-server 0.0.23 (unchanged module, existing jar, `CREDENTIALS_ENCRYPTION_MASTER_KEY` = the dev key from `docker/docker-compose.yml`) | 8083 | 82187 |
-  | orchestration-service, host, unthrottled (`CONTINUUM_API_SERVER_BASE_URL=http://localhost:8080`) | 8090 | 82240 (items 1 and 3); after the throttled container, 87134 (item 4, wedge runs 2-3) |
-  | orchestration-service, the same jar in container `loops-systest-orch-throttled` (`--cpus=0.5 --memory=1g`, network `temporal-network`) | — | removed at the end |
-  | feature-base worker 0.0.10 (`CONTINUUM_NODE_TASK_QUEUE=CONTINUUM_FEATURE_BASE_TASK_QUEUE`) | 8092 | 82241 |
-
-- **Start-up line:** every orchestrator start logged "Loop condition evaluator installed and warmed up in … ms, with 4 evaluation threads": 282 and 212 ms on the host, 706 and 683 ms in the container. The Loop was published on attempt 1.
-- **Base URLs:** the `lib/config.js` defaults. k6 v2.4.0, node v24.18.0. Temporal CLI via `docker exec temporal temporal …`.
-- **Two workflows `br-r4-retry-probe-*` (`RetryProbeWorkflow`, own task queues) are not mine.** They were started on the shared Temporal at 06:44 and 06:52 UTC by another process, probably the reviewer. They are excluded from every count below.
-
-### Item 1: F-2 cross-tenant probe, now also a suite check
-
-**Probe** (`probe/crosstenant4.mjs`, unthrottled host orchestrator):
-- tenant A starts 4 runs with `oneLongCallCondition(9, 9)` (about 9 s per call);
-- as soon as the 4 "did not finish within 250 ms" WARNs are logged, tenant B starts a plain loop (`vars["anomalyDetectorZScoreNode_score.executionStatus"] == "SUCCESS"`, maxIterations 3, stop-with-warning).
-
-I ran it 3 times:
-
-| Run | Tenant B: run / loop | B's delay (record span) | B's history | WARN "… nothing is recorded and the workflow task is retried" naming B's run | Tenant A: 4 runs |
+| Target | One editor: 2 s after a cold start / when the edits began / peak | Five editors | Margin below the ceiling | Whole container, sampled peak | Round 2 |
 |---|---|---|---|---|---|
-| `9d75d1e4` | FINISHED / WARNING "Stopped at the limit of 3 iterations", `after` SUCCESS | 11.5 s | 171 events, `COMPLETED`, **3 markers (1 per check)**, 1 `WORKFLOW_TASK_FAILED`, 0 timed out, `score` ran 3× | 2 | FAILED, `$error` "…LIMIT_EXCEEDED: the condition exceeded a cost limit: the condition took longer than 200 ms to evaluate.", `after` SKIPPED; 1 marker, 0 WT failed each |
-| `2f25c759` | FINISHED / WARNING, the same | 11.2 s | 180 events, 3 markers, 2 WT failed | 3 | the same |
-| `45f4256a` | FINISHED / WARNING, the same | 21.5 s | 168 events, 3 markers, 1 WT failed | 3 | the same |
-
-- The WARN is "Loop 'L': the condition check in iteration 1 of workflow '<B>' (run '<B run>') did not get an evaluation thread within 250 ms: all 4 are busy; nothing is recorded and the workflow task is retried". No `$error` contains "busy".
-- Tenant A reading B's run gets 404 each time.
-
-**Suite check: reliable, so it is now in the suite.** The new `sharedThreadChecks` section in `suites/api/loops.js` works like this:
-1. the second tenant (`…-loops-other`) starts 4 loops with the new `THREAD_HOLDING_CONDITION` (= `oneLongCallCondition(9, 9)`);
-2. it waits until their loops are decided (the checks were given up);
-3. the owner then starts `cheapLimitLoop`.
-
-The checks:
-- "a cheap loop whose check finds every thread held by another tenant still ends WARNING \"Stopped at the limit of 3 iterations\"";
-- "a cheap loop delayed by another tenant's held threads: the node after it ran and the run is FINISHED, not FAILED";
-- "the cheap loop was delayed by the held threads (record span over 3 s), so its check really met a busy pool";
-- "the other tenant's thread-holding loops fail with the 200 ms budget text, none with a busy text";
-- "the other tenant's thread-holding runs are recorded FAILED";
-- "delayed loop run: hidden from other tenant (404)", paired with the owner's own reads;
-- plus 5 start / precondition checks.
-
-Results: 4 of 4 suite runs passed (3 direct runs plus `make api`). Each one shows one retried task on the cheap run in the history sweep, with cause "no loop condition evaluation thread is free". The timing margin is wide: the holders keep the threads for about 9 s, and B's check comes 1-2 s after the abandons. The section adds about 20 s to the suite.
-
-### Item 2: throttled orchestrator (`--cpus=0.5`), 8 × `oneLongCall(8,8)` with 2 CPU busy-loops in the container
-
-- Container check: cgroup `cpu.max` = `50000 100000`, `nproc` = 1.
-- I ran the batch twice: once on a **cold** container (the first workflows after its start) and once on the **warm** container.
-
-| Batch | Runs / loops | `$error` | Busy text | Histories | Recording task |
-|---|---|---|---|---|---|
-| cold (06:45 UTC) | **8/8 FAILED / FAILED** | all 8 "…the condition took longer than 200 ms to evaluate." | none | 1 marker each. 4 recorded at once (record span about 8.8 s); 4 only after 2-4 retries (spans 61.9-64.8 s) | 523-977 ms |
-| warm (06:49 UTC) | **8/8 FAILED / FAILED** | all 8 the budget text | none | 1 marker each. 4 at once (1.7-2.0 s); 3 after retries (55.5-58.0 s); 1 straggler `676ae955` after 7 retries, ended on its own after **130 s** | not measured |
-
-- In the log, the retried checks show "did not get an evaluation thread within 250 ms: all 4 are busy; …retried", and once the late-start variant "got an evaluation thread only 198 ms before its 250 ms wait ended: the threads were busy; …". That second line shows the BR-13 late-start rule working live.
-- **TMPRL1101:**
-  - **warm batch: 0**. All 6 `WORKFLOW_TASK_FAILED` there are "no loop condition evaluation thread is free".
-  - **cold batch: one TMPRL1101 on the very first workflow task of each of the 8 runs.** Each one came before any loop code ran. The workflow thread was parked on Jackson's `DeserializerCache` lock while it decoded the workflow input (`POJOWorkflowImplementation.execute` → `JacksonJsonPayloadConverter.fromData`).
-  - It is **not loop-specific**. 8 **loop-free** runs (seed → after) on a freshly restarted throttled container hit it 3 times each: the same Jackson lock, then `StreamBridge.resolveDestination` in `StatusHelper.publishWorkflowSnapshot`, then a kotlin-reflect lazy lock. All of them completed normally after the retry.
-  - So it is JVM warm-up of the orchestrator on 0.5 CPU under a burst. It is not the condition evaluation, and it changed no outcome.
-  - The SDK does not log these: `grep TMPRL1101` over the orchestrator logs is 0, and only the history shows them. Round 3's "0 TMPRL1101" came from that log grep. Its history sweep (0 WT failed over 160 workflows) still holds, because round 3 warmed the container with single runs first.
-- The longest recording task under throttling was 977 ms (round 3: 921 ms). The margin against the 1 s detector is still thin, but it was not tripped by a loop check.
-
-### Item 3: documented self-starvation (evidence for a known limit, not an AC verdict)
-
-**Wedge 1, `e4ca01f0`** (5 parallel loops, `ONE_LONG_CALL_CONDITION`, `check: after`, host orchestrator):
-- validate: valid, with the 5 "reads no flow variable" warnings;
-- **stayed RUNNING for 12 min 22 s**, from 06:30:33 to my terminate at 06:42:54. It **never ended on its own**;
-- the Temporal history stayed at **97 events from the first failure until terminate**: 1 `WORKFLOW_TASK_FAILED` (event 97), 0 `WORKFLOW_TASK_TIMED_OUT`, **0 markers**. That is **0 history events per further retry**, because the later attempts are transient and never written;
-- retries (one "did not get an evaluation thread … all 4 are busy; … retried" WARN for L5 each) at local 12:00:34.5, :45.9, :55.9, 12:01:10.8, :28.8, :55.9, 12:02:42.9, 12:04:12.6, 12:06:35.1 and 12:11:05.7. The **gaps grow**: about 11, 10, 15, 18, 27, 47, 90, 143 and 270 s. At terminate, the pending workflow task was on **attempt 11**;
-- each attempt logs 5 WARNs (L1-L4 "did not finish within 250 ms; it fails with LIMIT_EXCEEDED…", L5 "…retried"): 51 WARN lines in all, plus 15 ERROR stack traces "uncaught exception … Failure processing workflow task … Attempt=n … ConditionEvaluationUnavailable" from the SDK's poller;
-- the run record meanwhile shows L1-L4 FAILED with the budget `$error`, L5 BUSY "Iteration 1 of 3" and progress 83 %, published by attempts that were never recorded;
-- **can it be terminated:** yes. Another tenant's `POST /api/v1/workflow/{id}/terminate` → 404; the owner's → 204; Temporal `WORKFLOW_EXECUTION_TERMINATED` 5 s later. **But the run record stays `RUNNING`** (still RUNNING 12 minutes later, and listed by `status==RUNNING`): see F-3.
-
-**Other tenants during wedge 1: all FINISHED, none FAILED.**
-- tenant C: 1 plain loop, FINISHED WARNING in 1.0 s;
-- tenant D: **150 plain loops** started 2 s apart (06:37-06:42 UTC): **150/150 FINISHED**, loop WARNING "Stopped at the limit of 3 iterations"; median 1.0 s, max 11.2 s;
-- the one slow run, `cfbc24d6`, met the busy pool during a wedge retry. It logged 2 "…retried" WARNs and finished 10 s later: delayed, not failed.
-
-**Wedge 2, `ba20ccc5`** (the same shape, on the restarted orchestrator) **did not wedge**:
-- only 4 of the 5 checks fell into one workflow task, because L4's member activity completed into the next task;
-- L4's check met its own run's 4 abandoned calls, was retried once, got a thread 300 ms later (an `(8,7)` call returns in about 1.2 s) and was recorded;
-- result: run FAILED after 2 s, 5 markers, 1 WT failed.
-
-So the limit applies only when all checks land in one workflow task, as the release note says.
-
-**Wedge 3, `fa4b6644`** (5 loops with `check: before`, so all 5 checks always come in one task):
-- stayed RUNNING for 4 min 47 s with 25 history events (1 WT failed, 0 markers, no growth);
-- retries at growing gaps (1, 10, 10, 15, 19, 27, 44, 82 s);
-- tenant E's 3 plain loops meanwhile: FINISHED in 0.5-1.0 s;
-- cancel: another tenant → 404; owner → 204;
-- **the record became `CANCELLED`**, because a retry attempt after the cancel ran the signal handler, published, then failed again;
-- Temporal stayed RUNNING with cancel requested, because the wedged task can never process it. A follow-up terminate (204) ended it in Temporal (`TERMINATED`), and the record stayed `CANCELLED`.
-
-At the end, `temporal workflow list` shows **no workflow still running**.
-
-### Item 4: regression
-
-| Suite | Result |
-|---|---|
-| `./run.sh suites/api/loops.js` ×3 | **232/232** each (the 220 from round 3 plus 12 new shared-thread checks), `isolation_violations` 0, no `known_gaps`, exit 0 |
-| `make api` | exit 0: workflow 15/15, runs 30/30, schedules 36/36, node-explorer 19/19, data 45/45, credentials 54/54, loops 232/232 |
-| `./run.sh smoke` | 10/10 |
-| `./run.sh tenancy` | 32/32, `isolation_violations` 0 |
-| History sweep over the 136 workflows of the 4 loops runs (`sweep.py`) | The single one-long-call run of each suite run: **0 `WORKFLOW_TASK_FAILED`**, 1 marker (4 of 4). The 16 thread-holding runs: 0 WT failed, 1 marker. The only 4 WT failures are the 4 intended retries of the cheap shared-thread loop. 0 TMPRL1101 |
-
-History sweep over **all 332 of my workflows** of the round:
-- the TMPRL1101 seen are only the 32 on the cold throttled container (item 2);
-- the 22 "no thread free" failures are only the retried checks of items 1-3 and of the shared-thread suite check;
-- there are no other workflow-task failures.
-
-### AC coverage (round 4)
-
-| Item / AC | Check name(s) / evidence | File | Result |
-|---|---|---|---|
-| (1) BR-10 / F-2 / AC-43: another tenant's held threads delay a cheap loop, never fail it; the holders fail with the budget text | probe ×3 (table above), plus the suite checks: "a cheap loop whose check finds every thread held by another tenant still ends WARNING …"; "… the node after it ran and the run is FINISHED, not FAILED"; "the cheap loop was delayed by the held threads (record span over 3 s) …"; "the other tenant's thread-holding loops fail with the 200 ms budget text, none with a busy text"; "the other tenant's thread-holding runs are recorded FAILED"; "delayed loop run: hidden from other tenant (404)" | `suites/api/loops.js` (`sharedThreadChecks`), `lib/loopscenarios.js`; probe `/tmp/…/probe/crosstenant4.mjs` | **PASS** (probe 3/3, suite 4/4). B's history has 1 marker per check, 1-2 WT failed, and the WARN names B's run |
-| (2) throttled 8 × (8,8): all FAILED with the budget text, none busy, 0 TMPRL1101 | probe `onecall.mjs intersects88 8` on the `--cpus=0.5` container, cold and warm | probe | **PASS** for the loop criteria (16/16 FAILED with the budget text, 0 busy texts, 1 marker each). 0 TMPRL1101 on the warm orchestrator. On the cold container: 1 TMPRL1101 per run on the first workflow task, in Jackson start-up and not loop code, and loop-free runs show the same (observation O-1, not a loop defect) |
-| (3) one run, 5 parallel slow loops (documented limit) | wedges 1-3 (above) | probes `wedge.mjs`, `watch.mjs`, `plain.mjs` | **Documented-limit evidence, no verdict.** It stays RUNNING when all checks fall into one task (12 min 22 s and 4 min 47 s observed; never ends on its own), with 0 history growth after the first failure and retries at growing intervals. It can be cancelled or terminated. Other tenants' loops all finished (151 + 3; 1 delayed by 10 s). Terminate leaves the record RUNNING (F-3) |
-| (4) round-3 one-long-call checks, 0 WT failed for a single slow run; full regression | all round-1..3 checks | `suites/api/loops.js`, other suites | **PASS** |
-| Round 1-3 ACs (AC-3, 6, 7, 9, 10, 11, 13, 14, 16-22, 24, 25, 44, BR-1/2/3/9, F-1, tenant isolation) | unchanged checks | `suites/api/loops.js`, other suites | **PASS** |
-| AC-5 retry, AC-23, AC-26, AC-27, AC-42 | — | — | NOT VERIFIED: not system-testable, as before |
-
-### Failures
-
-No k6 check failed, and no AC failed. One finding and two observations come from the probes:
-
-- **F-3 (finding; reached through the documented limit; the terminate code itself predates loops): terminating a self-starved run leaves its run record `RUNNING` for good.**
-  - Request: `POST /api/v1/workflow/e4ca01f0-…/terminate` (owner) on wedge 1 → 204; Temporal → `WORKFLOW_EXECUTION_TERMINATED`.
-  - Expected: `GET /api/v1/workflow-runs/{id}` shows `status: "TERMINATED"`, as for any terminated run.
-  - Actual: `status: "RUNNING"`, `updatedAt` frozen at the last failed attempt (06:41:05). It was still RUNNING 12 minutes later and is listed by `status==RUNNING`.
-  - Cause: the api-server relies on the `notifyTerminating` signal handler to publish `TERMINATED` (`WorkflowService.terminateWorkflow` → `ContinuumWorkflow.notifyTerminating`). A self-starved run processes no workflow task: the next attempt was minutes away because of the growing backoff, and the hard terminate follows 5 s later. So the handler never runs and nothing publishes the final status.
-  - Cancel only worked in wedge 3 because a retry attempt happened to run inside the window.
-  - The release notes' advice for this limit ("terminate a run that is stuck this way") therefore leaves a run that the UI shows as running forever.
-  - Owner: backend developer (BE-15, the documented-limit remedy). `SCOPE:` the terminate path is outside the loops plan. Possible fixes: the api-server or message-bridge writes `TERMINATED` (or `CANCELLED`) to the record itself once Temporal confirms the stop, or the limit's docs say how to clean up the record.
-- **O-1 (observation, not loops): TMPRL1101 on a cold orchestrator with 0.5 CPU.**
-  - The first workflow tasks after start-up exceed the 1 s detector while Jackson, Spring Cloud Stream and kotlin-reflect initialise. This was seen on loop-free runs as well.
-  - Temporal retries the task and the run completes, so no outcome changes. The SDK does not log it; only the history shows it.
-  - `SCOPE:` the backend developer may want to warm these up at start, as is already done for cel-java.
-- **O-2 (observation, docs): retries are not paced at one per 10 s; the gaps grow.**
-  - Measured gaps were about 10 s at first, then 15, 18, 27, 47, 90, 143 and 270 s (attempt 11 after 12 min).
-  - So "a waiting check runs again at most once per 10 s" is true as an upper rate. But "delayed about 10 to 20 s" holds only when the threads free up within the first one or two retries. Under throttling, delayed runs ended after 55-65 s, and one after 130 s.
-  - The release notes and orchestration `AGENTS.md` could say that the retry interval grows with each attempt.
-  - Also: every retry after the first logs a full ERROR stack trace ("uncaught exception … ConditionEvaluationUnavailable") from the SDK poller, which operators may read as a fault.
-- While a run self-starves, its record shows loops FAILED (L1-L4) that are not in the history. They come from attempts that were never recorded. This is informational.
-
-### Files changed (repo `continuum-system-tests`, branch `CONTNM-180`, uncommitted; on top of rounds 1-3)
-
-- `lib/loopscenarios.js`:
-  - `THREAD_HOLDING_CONDITION` (= `oneLongCallCondition(9, 9)`);
-  - `EVALUATION_THREADS` (4);
-  - `oneLongCallLoop(base, condition = ONE_LONG_CALL_CONDITION)`;
-  - new `cheapLimitLoop`.
-- `suites/api/loops.js`:
-  - new `sharedThreadChecks` section (plus `waitForLoopsDecided`), run after `nothingToRunChecks`;
-  - imports;
-  - header comment.
-- `test/loopscenarios.test.js`: 1 new test (the thread-holding condition is within the caps and reads no variable; the shape of the cheap loop).
-- `README.md`:
-  - the suite table row;
-  - "Loop suite: what it can and cannot run" gains the shared-thread bullet ("a loop's `$error` never names busy threads"; delayed about 10-20 s; about 20 s more per suite run) and a bullet on why the self-starvation limit is not in the suite.
-- `AGENTS.md`: the loop-suite contract names `THREAD_HOLDING_CONDITION`, plus a new contract: shared threads; never assert a "busy" `$error`; never put a self-starving run in a suite.
-- `Makefile`: unchanged (`loops` already in `API_SUITES`).
-- Factory-ID grep over the changed files: 0 hits.
-
-### Commands run
-
-| Command | Result |
-|---|---|
-| `docker ps -a`; port probe | nothing running |
-| `docker-compose -p loops-systest … up -d --wait <infra>` | exit 0, all healthy |
-| platform `bootJar` ×3 and feature-base `:worker:bootJar` (`--offline`, scratch build dir, `--include-build`) | OK; addendum classes in the jar |
-| `java -jar` api-server / bridge / credentials / orchestration / worker | all up at the first try; Loop published on attempt 1 |
-| `node probe/crosstenant4.mjs <log> r4a|r4b|r4c` | 3/3: B FINISHED/WARNING after 11.2-21.5 s; A 4× FAILED with the budget text |
-| `python3 history-summary.py`, `task-timing.py` | quoted above |
-| `node probe/wedge.mjs after 8 7 5`, `watch.mjs` (about 13 min in all), `plain.mjs` ×151 (tenants C, D) | wedge 1 RUNNING for 12 min 22 s; 151/151 other-tenant loops FINISHED |
-| `POST …/terminate` (tenant C → 404, owner → 204) | Temporal TERMINATED; record RUNNING (F-3) |
-| `kill -TERM 82240`; `docker create --cpus=0.5 …`, `docker cp`, `docker start`; `cat /sys/fs/cgroup/cpu.max`, `nproc` | `50000 100000`, 1 |
-| 2 × `sh -c 'while :; do :; done'` in the container + `onecall.mjs intersects88 8` (cold, then warm) | 16/16 FAILED with the budget text |
-| `docker restart` + `loopfree.mjs 8` (with CPU burn) | 8/8 FINISHED, 3 TMPRL1101 each (O-1) |
-| `docker stop -t 30` / `docker rm loops-systest-orch-throttled`; host orchestrator restarted (87134) | OK |
-| `npm test` | PASS 76/76 (75 + 1 new) |
-| `npm run check` | PASS |
-| `./run.sh suites/api/loops.js` ×3 | 232/232, exit 0 |
-| `make api` | exit 0, all 7 suites 100 % |
-| `./run.sh smoke`, `./run.sh tenancy` | 10/10, 32/32 |
-| `node probe/wedge.mjs after 8 7 5` (wedge 2), `wedge.mjs before 8 7 5` (wedge 3) + `plain.mjs` ×3 (tenant E), `watch.mjs` | wedge 2 FAILED after 2 s; wedge 3 RUNNING for 4 min 47 s, others FINISHED |
-| `POST …/cancel` (tenant E → 404, owner → 204), then `…/terminate` (204) | record CANCELLED; Temporal TERMINATED |
-| `python3 sweep.py 2026-11-26T06:20:00Z` (every history of the round) | 334 workflows (2 not mine), counts above; none left running |
-| `kill -TERM 87134 82185 82186 82187 82241` | all stopped (`kill -0` verified) |
-| `./gradlew --stop` (platform-core, feature-base); `pgrep GradleDaemon\|KotlinCompileDaemon` | stopped; none left |
-| `docker-compose -p loops-systest … down` (no `-v`) | no containers left; ports free |
-
-Logs and outputs: `/tmp/loops-systest-r4.pfJvoH/`:
-- `orchestration-1.log`, `orchestration-2.log`, `orchestration-throttled{,-1,-2}.log`, `api-server.log`, `message-bridge.log`, `worker.log`, `credentials.log`;
-- `k6-run{1,2,3}.txt`, `make-api.txt`, `k6-smoke.txt`, `k6-isolation.txt`;
-- `probe-*.txt`, `history-*.txt`, `sweep-{suites,all}.txt`, `probe/`, `pids.txt`.
-
-## Round 5
-
-Date 2026-11-26. Re-check of BE fix round 4 (`03-backend-dev.md` "Round 9 — fix round 4": F-3 terminate of a stuck run, plus the bridge `TERMINATED` guard), items (1)-(5) of "For the system tester (live re-check)". Code under test: `continuum-platform-core` `CONTNM-180` working tree (uncommitted) and `continuum-feature-base` `main` against it. Tests: `continuum-system-tests` `CONTNM-180` (uncommitted; no git writes).
-
-This round ran in two sittings. The first (14:31-15:06 IST) built the jars, started the stack, wrote the probes and ran the live probes and the first suite run. It was interrupted with the stack still up. In the second (15:23-15:35) I confirmed that the stack was mine (`pids.txt` matched the five `java -jar` PIDs, the jars were my scratch builds, nothing had changed in the sources after the build), re-ran every regression suite, and cleaned up. The probe outputs below come from the first sitting; the suite runs and the log checks from the second.
-
-### Environment
-
-**Everything ran against the changed code.** `make up` was not used.
-
-- **Infra:** `docker-compose -p loops-systest -f docker/docker-compose.yml --env-file docker/.env up -d --wait` (postgresql, temporal, temporal-search-attributes-init, mosquitto, kafka1-3, schema-registry, minio), all healthy. Stopped at the end with `down`, without `-v`.
-- **Builds** (`--offline`, output in the scratch dir `/tmp/loops-systest-r5.acEOht/gradle-build/` through the init script that redirects `layout.buildDirectory`; no repo `build/` touched): platform `:continuum-api-server:bootJar :continuum-orchestration-service:bootJar :continuum-message-bridge:bootJar`; feature-base `:worker:bootJar --include-build ../continuum-platform-core`. Jar check: the api-server jar holds `WorkflowStopScheduler`, `TimerWorkflowStopScheduler` and `WorkflowRunRepository.markTerminated`; the bridge jar holds the `TERMINATED` guard. No file in `continuum-platform-core` is newer than the build (14:32).
-- **Processes** (all `java -jar`, explicit ports, all stopped by PID at the end; the bridge needed about 40 s to exit on SIGTERM, no `kill -9`):
-
-  | Service | Port | PID |
-  |---|---|---|
-  | api-server | 8080 | 98244 |
-  | message-bridge | 8091 | 98245 |
-  | credentials-server 0.0.23 (existing jar, unchanged module) | 8083 | 98246 |
-  | orchestration-service (host, unthrottled) | 8090 | 98247 |
-  | feature-base worker 0.0.10 | 8092 | 98248 |
-
-- Base URLs: the `lib/config.js` defaults. k6 v2.4.0, Node v24.18.0, Temporal CLI through `docker exec temporal temporal …`.
-
-### Item 1: terminate of a stuck run (F-3)
-
-**Probe** `probe/stuckterminate.mjs` (5 parallel `check: before` loops with `ONE_LONG_CALL_CONDITION`; waits for 2 "… nothing is recorded and the workflow task is retried" WARNs naming the run; polls every 500 ms):
-
-| Step | Observed |
-|---|---|
-| Run is stuck | after 5.7 s: record `RUNNING`, Temporal `RUNNING`, 25 events, 1 `WORKFLOW_TASK_FAILED`, 0 markers, last event `WORKFLOW_TASK_FAILED` |
-| Other tenant `POST …/terminate` | **404**; its `GET /api/v1/workflow-runs/{id}` **404** |
-| Owner `POST …/terminate` | **204** at 09:11:24.189Z |
-| +23 ms | record `RUNNING`, `updatedAt` unchanged (last failed attempt) |
-| **+5189 ms** | record **`TERMINATED`**, `updatedAt` 09:11:29.221Z = **stop + 5032 ms** |
-| After 20 s | record `TERMINATED`; Temporal `WORKFLOW_EXECUTION_TERMINATED` (27 events, 3 signals); **not** in `?filter=status==RUNNING`; **is** in `status==TERMINATED` |
-| After 60 s and 120 s | still `TERMINATED`, `updatedAt` unchanged (09:11:29.221Z), not in the RUNNING list |
-| End | owner `GET` 200; other tenant `GET` 404 |
-
-Repeats: the suite's own stuck run passed 2 more times (suite runs 1 and 2) and a third time inside `make api`; every history sweep entry for these runs (`WORKFLOW_EXECUTION_TERMINATED`, 27 events, 0 markers) agrees.
-
-**Suite checks (new, `terminateChecks` in `suites/api/loops.js`, 12 checks for the stuck run):** run starts (200); still `RUNNING` 6 s after its start (so it really is stuck); other tenant's terminate 404; other tenant's record read 404; another tenant's terminate left it `RUNNING`; owner's terminate 204; recorded `TERMINATED`, and no status other than `RUNNING` or `TERMINATED` ever seen; `updatedAt` about 5 s after the terminate (dated with the server's `Date` header); not listed under `status==RUNNING`; listed under `status==TERMINATED`; still `TERMINATED` 15 s later; owner can read, other tenant 404 (`expectHidden`, paired with the owner reads). The run is stopped in a `finally`.
-
-**api-server log:** 0 lines "Failed to terminate" and 0 ERROR lines over the whole life of the process (200 lines in total; the only WARNs are the start-up bean-post-processor and cache-metrics ones). The message-bridge log has 0 ERROR lines.
-
-### Item 2: healthy-run regression
-
-**Probe** `stopprobe.mjs long` (loop with a cheap condition, `maxIterations` 200; terminate once iterating, then poll every 200 ms for 25 s):
-- terminate **204** at 1.1 s after the start, run at "Iteration 5 of 200";
-- the status sequence was `RUNNING` → `TERMINATED`, **one final status**. `TERMINATED` appeared at +234 ms (178 ms after the stop), written by the run's own signal handler, **long before the 5 s grace period**;
-- the snapshot kept the in-flight nodes as the run published them (`L=BUSY` "Iteration 7 … 41 of 200", `score` `SCHEDULED`/`BUSY`, `seed` `SUCCESS`, `after` unset). It was **not reset**: the run's own events kept updating it during the grace period (`updatedAt` moved on to stop + 5010 ms, the last event before Temporal's hard stop). The api-server's `markTerminated` matched 0 rows, as designed;
-- Temporal `WORKFLOW_EXECUTION_TERMINATED`.
-
-Suite checks (3): "the healthy loop run is iterating before it is terminated"; "terminate of a healthy running loop run is 204"; "a terminated healthy loop run is recorded TERMINATED and shows no other final status"; "… the record keeps the loop as the run last reported it (BUSY, not reset)" (4 checks incl. the iterating precondition).
-
-### Item 3: terminate of a run that finishes within the grace period
-
-The expected outcome in the task list ("keeps FINISHED/FAILED") **cannot be produced as stated; what happens is below. No assertion about it is in the suite.**
-
-| Probe (`stopprobe.mjs`) | Terminate | Record | Temporal |
-|---|---|---|---|
-| `shortfail`: loop-free run, first node fails; terminate 310 ms after the start | **404** (already over) | `FAILED`, unchanged | `FAILED` |
-| `shortloopfail`: loop with `onLimit: fail`; terminate 609 ms after the start (run already over) | **404** | `FAILED`, unchanged | `FAILED` |
-| `short`: 3-iteration loop, terminate 302 ms after the start (run still running) | 204 | `RUNNING` → **`TERMINATED`** at +233 ms | `COMPLETED` |
-| `shortloopfail`: terminate 101 ms after the start | 204 | **`TERMINATED`** at +643 ms (451 ms after the stop) | `FAILED` |
-
-- A run that has ended before the call keeps its final status (404, nothing written): **PASS**.
-- A run that is still running when the signal arrives handles it (`notifyTerminating` → `pinTerminalStatus("TERMINATED")`, which exists since the CONTNM-96 commit) and records `TERMINATED` by itself, in 0.2-0.6 s. It then ends on its own, so Temporal says `COMPLETED` or `FAILED` but the record says `TERMINATED`. This is the existing behaviour. It is **not** the new write: the `updatedAt` is 0.2-0.5 s after the stop, not 5 s.
-- The new api-server path for "ended within the grace period" did run live: the api-server logged "Workflow … ended before it could be terminated; its run record keeps its final status" for those runs (at the 5 s mark, `WorkflowNotFoundException`, nothing written). I can only show that nothing wrote `TERMINATED` there, because the record was already `TERMINATED` from the run itself. Whether a **signal-never-handled run that then ends on its own within 5 s** keeps `FINISHED`/`FAILED` cannot be reached over HTTP (a run that handles no task cannot end by itself); the unit test `WorkflowServiceTest` covers it. **NOT VERIFIED live.**
-- Side effect to note: with the new bridge guard, a run that was terminated and ends on its own afterwards stays `TERMINATED` even if its last event says `FINISHED`/`FAILED` (`short`, `shortloopfail` above: the record kept `TERMINATED` over the following 25 s). Before the guard, the later event would have overwritten it. I take this as intended ("one final status") and report it so the item 3 wording can be adjusted.
-
-### Item 4: cancel of a stuck run
-
-**Probe** `stuckterminate.mjs … cancel`: other tenant cancel **404**, read 404; owner cancel **204**. The record stayed `RUNNING` for 9 s, then became **`CANCELLED`** (09:21:04) because a retry attempt ran the signal handler, published, and failed again; `updatedAt` kept moving with every later failed attempt (stop + 20 s, 60 s, 120 s: all `CANCELLED`, not in the `status==RUNNING` list). Temporal stayed `RUNNING` with the cancel requested (30 events, 2 WT failed, 0 markers). This is the same as round 4 (wedge 3): **unchanged**.
-
-Follow-up: a **terminate after that cancel** (204) ended Temporal as `TERMINATED`, and the record **changed from `CANCELLED` to `TERMINATED`** (`updatedAt` 09:23:17). In round 4 the record stayed `CANCELLED` there. This is the new `markTerminated` (it skips only a record that is already `TERMINATED`). It is correct in my view, because Temporal's own state is `TERMINATED`; I report it as a behaviour change (observation O-3), not as a defect.
-
-### Item 5: regression
-
-| Command | Result |
-|---|---|
-| `npm test` | **PASS 77/77** (the same count as round 4 plus one test in `test/loopscenarios.test.js` for the self-starving run shape) |
-| `npm run check` | PASS |
-| `./run.sh suites/api/loops.js` ×3 (run 1 in sitting 1, run 2 in sitting 2, and inside `make api`) | **249/249** each, `isolation_violations` 0, no `known_gaps`, exit 0 (232 from round 4 + 17 new terminate checks) |
-| `make api` | exit 0: workflow 15/15, runs 30/30, schedules 36/36, node-explorer 19/19, data 45/45, credentials 54/54, loops 249/249 |
-| `./run.sh smoke` | 10/10 |
-| `./run.sh tenancy` | 32/32, `isolation_violations` 0 |
-| History sweep (`sweep.py`) over every workflow of the round | thread-holding runs `FAILED` with the budget text, 1 marker, 0 WT failed; the cheap shared-thread loops 1-2 retried tasks with cause "no loop condition evaluation thread is free"; the stuck and terminated runs `TERMINATED`, 27 events, 0 markers; 0 TMPRL1101 in the orchestrator log; **no workflow left running** |
-
-### AC coverage (round 5)
-
-| Item | Check name(s) / evidence | File | Result |
-|---|---|---|---|
-| (1) F-3: stuck run, other tenant terminate and read 404 | "stuck run terminate: hidden from other tenant (404)", "stuck run record: hidden from other tenant (404)", "another tenant's terminate left the stuck run RUNNING"; probe | `suites/api/loops.js` (`terminateChecks`) | **PASS** |
-| (1) owner 204; record `TERMINATED` about 5 s later with `updatedAt` = end time | "terminate of the owner's stuck run is 204", "a terminated stuck run is recorded TERMINATED after the grace period, never another final status", "…updatedAt is the end time, about 5 s after the terminate"; probe (+5189 ms, stop + 5032 ms) | same | **PASS** |
-| (1) not under `status==RUNNING`, under `status==TERMINATED` | "a terminated stuck run is no longer listed by status==RUNNING", "…is listed by status==TERMINATED" | same | **PASS** |
-| (1) stays `TERMINATED` (a late attempt cannot reopen it) | "a terminated stuck run stays TERMINATED 15 s later"; probe 60 s and 120 s | same | **PASS** (bridge guard works live) |
-| (1) no WARN "Failed to terminate" in the api-server log | `grep` over the log | — | **PASS** (0 hits, 0 ERROR) |
-| (2) healthy run still ends `TERMINATED` once, snapshot not reset | "a terminated healthy loop run is recorded TERMINATED and shows no other final status", "…keeps the loop as the run last reported it (BUSY, not reset)"; probe | same | **PASS** |
-| (3) terminate of a run already over → 404, final status kept | probes `shortfail`, `shortloopfail` (404) | probes | **PASS** (probe only) |
-| (3) terminate of a run that ends within the grace period keeps FINISHED/FAILED | probes `short`, `shortloopfail`: record `TERMINATED` by the run's own handler (existing behaviour, 0.2-0.6 s); the api-server wrote nothing ("ended before it could be terminated") | probes | **NOT VERIFIED as worded** (see item 3 above; the api-server's no-write path is only covered by a unit test) |
-| (4) cancel of a stuck run unchanged | probe: 404 / 204; record `RUNNING` then `CANCELLED` after a retry attempt; Temporal stays `RUNNING` | probe | **PASS** (unchanged) |
-| (5) regression: loops 249/249 ×3, `make api`, smoke 10/10, tenancy 32/32 | see above | all | **PASS** |
-| Earlier ACs (rounds 1-4) | unchanged checks | `suites/api/loops.js`, other suites | **PASS** |
-| AC-5 retry, AC-23, AC-26, AC-27, AC-42 | — | — | NOT VERIFIED: not system-testable, as before |
-
-### Failures
-
-No k6 check failed and no AC failed. Observations:
-- **O-3 (behaviour change, not a defect):** a terminate after a cancel that never completed now turns the record from `CANCELLED` to `TERMINATED` (Temporal state is `TERMINATED`). Before the fix it stayed `CANCELLED`.
-- **O-4 (item 3 wording):** a terminate of a run that is still running at the signal and ends on its own within the grace period leaves the record `TERMINATED` (the run's own handler, existing behaviour), and now the bridge guard keeps it so even when a later `FINISHED`/`FAILED` event arrives. The "keeps FINISHED/FAILED" expectation holds only for a run that is already over when terminate is called (404).
-- O-1 (cold-start warm-up) was not re-tested; it is a separate improvement.
-
-### Files changed (repo `continuum-system-tests`, branch `CONTNM-180`, uncommitted; on top of rounds 1-4)
-
-- `suites/api/loops.js`: new last section `terminateChecks` (+ helpers `readRun`, `listedWithStatus`, `watchStatuses`, `terminate`, `STOP_GRACE_MS`, `RUN_PATH`); header comment.
-- `lib/loopscenarios.js`: `selfStarvingLoops(base)` (5 parallel `check: before` loops fed by `seed`, `ONE_LONG_CALL_CONDITION`).
-- `test/loopscenarios.test.js`: 1 test for the self-starving run shape.
-- `README.md`: the loop-suite bullet "Not in the suite … starves itself" replaced by the terminate section description (it is now in the suite, and what is still not).
-- `AGENTS.md`: the shared-thread contract now says only `terminateChecks` may start a self-starving run, and must stop it in a `finally`.
-- `Makefile`: unchanged (`loops` already in `API_SUITES`).
-
-### Commands run
-
-| Command | Result |
-|---|---|
-| `docker-compose -p loops-systest … up -d --wait <infra>`; platform and worker `bootJar` (`--offline`, scratch build dir) | all healthy; jars hold the fix classes |
-| `java -jar` api-server / bridge / credentials / orchestration / worker | all up |
-| `node probe/stuckterminate.mjs <log> r5a 2 120` | item 1 table above |
-| `node probe/stopprobe.mjs long\|short\|shortfail\|shortloopfail …` | items 2 and 3 |
-| `node probe/stuckterminate.mjs <log> r5d 2 120 cancel`, then a terminate | item 4 |
-| `npm test`; `npm run check` | 77/77; PASS |
-| `./run.sh suites/api/loops.js` ×2, `make api`, `./run.sh smoke`, `./run.sh tenancy` | 249/249 ×3; all 7 suites 100 %; 10/10; 32/32 |
-| `python3 sweep.py 2026-11-26T09:00:00Z`; `grep` of api-server, bridge, orchestration logs | see above |
-| `kill -TERM` 98244 98245 98246 98247 98248 (one call each) | all gone (verified with `ps -p`; the bridge took about 40 s) |
-| `docker-compose -p loops-systest … down` (no `-v`); `./gradlew --stop` in platform-core and feature-base | no containers left; no Gradle or Kotlin daemons left |
-
-Logs and outputs: `/tmp/loops-systest-r5.acEOht/`: `orchestration.log`, `api-server.log`, `message-bridge.log`, `worker.log`, `credentials.log`, `k6-run{1,2}.txt`, `make-api.txt`, `k6-smoke.txt`, `k6-isolation.txt`, `probe-*.txt`, `probe/`, `sweep.py`, `pids.txt`.
-
-## Round 6
-
-Reassessment after backend developer Round 11 (BR-4..BR-8 and BR-16..BR-18). This round did not recreate or substitute for the missing Loop API suite. The findings below distinguish earlier live evidence from verification of the Round 11 working tree.
-
-### Environment
-
-- Refreshed `.factory/environment.md` with `doctor.sh --quiet` at 2026-11-27 09:01. Docker 29.10.0 and k6 v2.4.0 are present; Node/npm are missing.
-- No stack was running: `docker ps` returned no containers. The `lib/config.js` default API URL is `http://localhost:8080`; a health request to `http://127.0.0.1:8080/actuator/health` failed with connection refused. Credentials and workbench are also reported unreachable by the refreshed profile.
-- `continuum-platform-core` is branch `CONTNM-180` with uncommitted Round 11 changes. No changed service was started, so no HTTP request in this round reached Round 11 code. The system-test checkout is branch `CONTNM-180`; `suites/api/loops.js` is absent. The available API suites are `cluster-manager.js`, `credentials.js`, `data.js`, `node-explorer.js`, `runs.js`, `schedules.js`, and `workflow.js`. None contains a Loop workflow scenario. Existing checkout changes were left untouched.
-- The previous Round 5 live results remain historical evidence for the code and scenarios recorded there; they are not a live re-check of the Round 11 working tree. In particular, Round 5 did not verify BR-4..BR-8 or the Round 11 test/documentation updates.
-- Backend developer Round 11 reports passing focused tests and a six-module Gradle run (904 tests, 0 failures/errors/skips). This is developer-reported unit/integration evidence, not independently rerun here and not black-box HTTP evidence.
-
-### AC coverage
-
-| AC | Check name(s) | File | Result |
-|---|---|---|---|
-| AC-6 | Loop registration, search/tree visibility and documentation endpoint | `suites/api/loops.js` (absent) | NOT VERIFIED against Round 11 code. Earlier live evidence is recorded in Round 1; Round 11 did not change registration. |
-| AC-7 | Loop defaults and invalid settings returned by validation | `suites/api/loops.js` (absent) | NOT VERIFIED against Round 11 code. Earlier live evidence is recorded in prior rounds; the changed CEL literal-validation wiring (BR-7) has no available Loop HTTP scenario. |
-| AC-9, AC-10 | Loop edge rejection and collapsed-cycle validation through HTTP | `suites/api/loops.js` (absent) | NOT VERIFIED against Round 11 code. Earlier live evidence is historical only. |
-| AC-13 | Rejected/accepted CEL conditions through `/api/v1/workflow` and validation | `suites/api/loops.js` (absent) | NOT VERIFIED against Round 11 code. BR-7 is externally observable through validation, but no current suite contains the Loop requests and the API server is unreachable. |
-| AC-16 | Multi-iteration Loop execution and final run state | `suites/api/loops.js` (absent) | NOT VERIFIED against Round 11 code. Existing `workflow.js` starts only the standard fixture workflow; it cannot check loop iterations. Earlier loop runs are historical evidence only. |
-| AC-20 / BR-8 | Nested-loop behavior and reuse of compiled conditions/start verdicts | `suites/api/loops.js` (absent) | NOT VERIFIED live. Existing HTTP scenarios cannot construct the nested Loop case. Compilation and verdict counts are internal and are covered only by the developer-reported unit tests. |
-| AC-26 / AC-27 / BR-4 | Replay-safe loop-start verdict / direct Temporal validation bypass behavior | No system API scenario | NOT VERIFIED live and not meaningfully observable via the existing public HTTP scenarios; developer reports replay/unit coverage. |
-| BR-5 / BR-6 | Kotlin named-argument cleanup and stale documentation/build-description wording | No system API scenario | No runtime behavior to verify over HTTP; developer reports source/documentation changes. |
-| BR-16 | PostgreSQL upsert guard and terminal-event/run-id cases | `suites/api/runs.js`, `suites/api/workflow.js` | NOT VERIFIED against Round 11 code. Existing suites can observe ordinary run records and generic termination, but do not assert the upsert conflict/guard cases covered by the developer's PostgreSQL tests. |
-| BR-17 | Delayed stop scheduling and continued scheduling after a throwing stop | `suites/api/workflow.js` | NOT VERIFIED against Round 11 code. Its generic terminate scenario can check eventual terminal state, not the delay bound or scheduler survival after a throwing stop. |
-| BR-18 | Documented in-memory five-second stop-loss window and operator retry | No system API scenario | NOT VERIFIED live; this is an operational/documentation limitation, not a behavior asserted by the available API scenarios. |
-
-### Failures
-
-- No application response or k6 check failed; none was run against a live backend. Current live verification is blocked by the absent stack, and Loop acceptance checks are additionally blocked by the absent `suites/api/loops.js`. Do not treat either blocker as a product PASS or FAIL.
-- Existing live scenarios offer only partial opportunities: `workflow.js` exercises a basic terminate request and eventual terminal state; `runs.js` observes ordinary run records. They do not prove BR-17 timing/error resilience, BR-16 SQL guard cases, or any of the Loop-specific Round 11 behavior. BR-4 and BR-8 replay/cache details are internal and have no public HTTP assertion in the current suites.
-- Static system-test checks were not executable because Node/npm are missing (`ENV: Node.js/npm missing — SETUP.md §1`). No test files were restored, reconstructed, or modified.
+| Dev bundle (host JDK) | not recorded / not recorded / **941 MB** (946) | 947 MB | 59 MB (6 %) | n/a | peak 931-935, five 937-942 MB (6-7 %) |
+| Image, unlimited container | 524 / 860 / **862 MB** (861) | 858 MB | 138 MB (14 %), five editors 142 MB | 972 MB (anonymous 959); cgroup `memory.peak` 998 MB including page cache; not OOM-killed; the run took 255.5 s | 720-810 / 858-883 / 866-884 MB; five 868-885; container 979-995 MB |
+
+**Exhaustion** (opt-in group; dev bundle only in Round 3; Round 2 in brackets):
+
+| Target | Failing open script | First failed answer | Replacement starts | Serving again | Server RSS peak, original / replacement | Soak after the replacement |
+|---|---|---|---|---|---|---|
+| Dev bundle | 11th (11th) | `-32803` after 30.0 s, RSS 903 MB (871 MB) | 51 s after the first failed answer (51 s) | 86 s after it (86 s) | 920 / **975 MB** (kernel HWM 975) (905 / 968) | 60 s: 46/46 completions on 11 scripts, 0 further restarts (180 s: 133/133); a fresh script served in 35 ms (34 ms) |
+
+**Image size** (`docker image inspect` `.Size`; files by `du -sm`):
+
+| Image | Bytes | MiB |
+|---|---|---|
+| Genuine release 0.0.16 (digest `sha256:2c44cb8a…`) | 4,378,995,222 | 4176 |
+| Round 2 image | 4,794,793,272 | 4573 |
+| Round 3 image | 4,794,791,656 | 4573 |
+
+The Kotlin support costs **+415,796,434 bytes (+415.8 MB, +9.5 %)** against the genuine release by `.Size`, but only **+231 MiB by files**: `/app` 1467 → 1482 MiB (+15, the plugin folder 5 → 9), `/opt/continuum` 1 → 152 (+151: the server, its runtime and the standard library), `/opt/claude-home` +26, `/usr/local/lib/node_modules` +27, `/root` +12. The last three (+65 MiB) are claude CLI/SDK layers that the rebuild refreshed and have nothing to do with Kotlin, so the Kotlin support itself is about 166 MiB of files. `docker history` agrees with the file level (Kotlin download layer +91, jlink runtime copy +61, `/app/continuum-workbench` +9, `node_modules` +5, claude SDK +39, claude CLI +26 MiB). The remaining gap between `.Size` (+415.8 MB) and the file sums (+231 MiB = 242 MB) is **not explained** (not investigated further).
+
+### Results by run
+
+| Run | Target and setup | Result |
+|---|---|---|
+| Dev cold window (the ST-11 repro) | `:3010`, `ONLY=coldwindow`, the Round 2 suite unchanged | 9 passed, 0 failed: the first edit at version 2 cleared the markers and the completion saw the edit at all 7 offsets |
+| Dev full | `:3010`, all default groups, `BACKEND_PID`, `IDLE_TIMEOUT_SECONDS=15`, `LEAK_PROBE_DIR` = the backend's cwd | 63 passed, 0 failed, 3 skipped, 66 checks |
+| Dev exhaustion and soak | `ONLY=exhaustion EXHAUSTION_SOAK_SECONDS=60` | 6 passed (replacement 51 s after the first failed answer, 46/46 completions in the soak, 0 further restarts) |
+| Host seed script (ST-12) | image driver, `ONLY=seedscript` (runs the source copy of the script on temp dirs) | 4 passed |
+| Image, default groups, first run | local tag `projectcontinuum/continuum-workbench:0.0.16` as `BASELINE_IMAGE` | 48 passed, **1 failed**, 1 skipped of 50: "the entrypoint script differs from the baseline only by seeding" printed "removed 0 line(s); added: nothing". A test-environment artefact (ST-13), not a product failure |
+| Image, guard proof | `ONLY=image`, baseline = the overwritten local tag | 8 passed, 0 failed, 3 skipped (the two baseline comparisons, NOT VERIFIED with the reason, and `--version`) |
+| Image static, genuine baseline | `ONLY=image`, baseline = `kotlin-lsp-systest-r3-baseline:0.0.16` | 10 passed, 0 failed, 1 skipped, 11 checks |
+| Image, default groups, final | baseline = the genuine release | **49 passed, 0 failed, 1 skipped, 50 checks, exit 0**; `asis` = the bridge suite 65 / 0 / 1 of 66 plus root pass 1/1 |
+
+### Failures and findings
+
+No check fails in Round 3. ST-n are this report's ids; the BE task is the one the fix belongs to.
+
+#### ST-11 — MINOR — BE-3 — **FIXED, verified** (item 1)
+The bridge now gives every document a strictly increasing server-side version (`OpenDocument.serverVersion` and `nextServerVersion()` in `OpenDocuments.ts`, used for every forwarded `didOpen` and `didChange`, the restart replay and the nudge; the client's own version is only recorded). Verified on the dev bundle and in the image by the sweep of seven open offsets, the new typed-error check, the exhaustion replay (a replaced server still applies edits) and the image's server log without `Reached end of file`. The effect in the real browser is NOT VERIFIED (the frontend tester's scope).
+
+#### ST-12 — NIT — BE-6 — **FIXED, verified** (item 2)
+`parseSettings` strips a leading U+FEFF before parsing; the rewritten file has no mark.
+
+#### ST-13 — environment hazard, not a product defect — the local tag `projectcontinuum/continuum-workbench:0.0.16` is a Kotlin-bearing local build, not the release
+- **Observed:** `docker image inspect projectcontinuum/continuum-workbench:0.0.16` gives id `4686500514ad…`, created 2026-11-28 01:06:40 +05:30, 5,471,324,431 bytes; `docker history` shows the Kotlin server and jlink layers, the seed script, `ENV MAVEN_REPOSITORY` and `ENV CONTINUUM_KOTLIN_LS_HOME`. The registry's release (digest `sha256:2c44cb8a…`) is 4,378,995,222 bytes and has none of that. I did not create or touch that tag (my images carry my own names). In Rounds 1-2 the tag still had the pre-feature entrypoint, so the baseline comparisons passed, but its size already did not match the release (the Round 1 driver message read "Kotlin adds -357 MB"), so it probably was a local build then too.
+- **Effects:** (1) My driver's two baseline comparisons ran against a Kotlin-bearing image in the first Round 3 run and one failed (above). Fixed in the test: `hasKotlinSupport` (in `lib/image-probe.mjs`) makes the driver SKIP both comparisons, NOT VERIFIED with the reason, when the baseline already carries `CONTINUUM_KOTLIN_LS_HOME`, and the genuine release is pulled by digest. (2) `continuum-system-tests/docker/docker-compose.yml` line 391 pins `projectcontinuum/continuum-workbench:0.0.16` for the stack's workbench service. By compose's default pull policy (`missing`) a `make up` would start that local build under the release's name, so other suites would silently test a different image (inferred, **not run**). (3) Any "0.0.16 against now" comparison, in release notes or by another tester, is meaningless while the tag points at it. A stopped container `continuum-workbench` (image `d4ecb8593986`, exited 7 hours ago) is not from this tag.
+- **Not done:** I did not retag, remove or re-pull it: it is not mine, and whoever built it may rely on it. See the plain-language summary.
+
+#### Observations (not defects; the Round 2 observations that were re-measured or are still open)
+1. **A replaced server is as loaded as the one it replaces.** Dev: the replacement peaked at 975 MB RSS (kernel high-water mark 975 MB), 25 MB under the 1000 MB ceiling that would restart it again (Round 2: 968 MB, 32 MB; back-off 1 s doubling, at most 3 restarts). No second restart in the 60 s soak. The image's replacement peaks were 820-869 MB in Round 2 (not re-run).
+2. **The outage window is unchanged:** about 86 s from the first failed answer to a serving server (replacement after 51 s), with `-32803` answers and no state change meanwhile.
+3. The image's server error log shows only what the probes cause: 1 × `InvocationTargetException` / `NotImplementedError` (`completionItem/resolve` without a URI passes the guard and fails inside the server with -32603; unchanged), 0 `OutOfMemoryError`, no `Reached end of file`.
+4. Unchanged and not re-checked in Round 3: the log-hygiene note on `ClientMessageGuard` (source reading only), pod memory with two servers (arithmetic, not measured) and the modules outside the 19 (`jdk.httpserver` unresolved in the image by design).
+
+### Round 2 findings: status now
+
+| Id | Round 2 | Round 3 |
+|---|---|---|
+| ST-11 MINOR | the first edit after the nudge is ignored | **Fixed** (item 1) |
+| ST-12 NIT | a BOM in `settings.json` makes the seeding give up | **Fixed** (item 2) |
+| ST-7 MINOR | a second document opened within ~20 ms drops the first one's diagnostics (upstream fwcd, steady state) | not re-measured |
+| ST-9 NIT | the default workspaces folder is wiped at start, so two same-uid backends collide | unchanged; I still set `CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR` per instance |
+| ST-10 NIT | final `USER root` (identical to 0.0.16) | unchanged |
+| ST-13 ENV | the local tag `0.0.16` is a Kotlin-bearing local build | **new**, test-side fix, product unaffected |
 
 ### Files changed
 
-- `.factory/CONTNM-180/05-backend-system-tests.md` only (appended this Round 6 report).
-- No product source or `continuum-system-tests` files changed.
+| File | Change |
+|---|---|
+| `suites/api/kotlin-lsp-bridge.mjs` | new check `typedErrorWhileStarting` (a mistake typed as the first edit while the cold server starts), run in `coldwindow` after the several-documents check; header |
+| `suites/api/kotlin-lsp-image.mjs` | the BOM "(measurement)" in `seed` replaced by three normal checks (direct plain-JSON, commented with identical backup bytes, end to end through the entrypoint on a volume; the suite writes the BOM fixtures itself); new host-run group `seedscript` (4 checks); a baseline guard (both baseline comparisons SKIP, NOT VERIFIED, when the baseline already has the Kotlin support); header (`BASELINE_IMAGE` must be a release from before the feature: pull it by digest and tag it under your own name) |
+| `lib/image-probe.mjs`, `test/image-probe.test.js` | `hasKotlinSupport(image)` and one test |
+| `README.md`, `AGENTS.md` | my rows only (bridge and image suites, groups, `BASELINE_IMAGE`); the frontend tester's rows were re-read before editing and left intact |
+| `.claude/knowledge/{workbench.md,graph.json,change-log.md}` | see Knowledge updates |
+
+`npm test` now runs 171 tests (Round 2: 170). No production code was changed.
 
 ### Commands run
 
 | Command | Result |
 |---|---|
-| `./.claude/factory/scripts/doctor.sh --quiet` | PASS; refreshed environment profile at 09:01. |
-| `docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'` | No containers running. |
-| `curl --silent --show-error --max-time 4 -i http://127.0.0.1:8080/actuator/health` | FAIL to connect (exit 7); API server unavailable. |
-| `git -C continuum-system-tests status --short --branch`; list `suites/api/` | Confirmed current checkout and absence of `loops.js`; no test files changed. |
-| `npm test` | NOT RUN: `npm: command not found` (exit 127). |
-| `npm run check` | NOT RUN: `npm: command not found` (exit 127). |
-| `k6 version` | k6 v2.4.0 available; no suite run because no API service was reachable. |
+| `npm test` and `npm run check` (continuum-system-tests), after the last test-file edit | 171 tests passed; exit 0 |
+| dev backend: `bash -ic 'sdk use java 21.0.11-tem && cd continuum-workbench/continuum-workbench && THEIA_CONFIG_DIR=<tmp> CONTINUUM_LANGUAGE_SERVER_WORKSPACES_DIR=<tmp> CONTINUUM_LANGUAGE_SERVER_IDLE_TIMEOUT_SECONDS=15 ./node_modules/.bin/theia start --plugins=local-dir:./plugins --port 3010'` (output into a file) | backend ready on `:3010` (backend pid 1797276, CLI pid 1796718); stopped at the end by pid |
+| `WORKBENCH_URL=http://127.0.0.1:3010 BACKEND_PID=1797276 IDLE_TIMEOUT_SECONDS=15 LEAK_PROBE_DIR=<backend cwd> ONLY=coldwindow node suites/api/kotlin-lsp-bridge.mjs` (the Round 2 suite unchanged) | 9 passed, 0 failed |
+| the same without `ONLY` | 63 passed, 0 failed, 3 skipped (66 checks) |
+| `… ONLY=exhaustion EXHAUSTION_SOAK_SECONDS=60 …` | 6 passed |
+| `NAME_PREFIX=kotlin-lsp-systest-r3 IMAGE=kotlin-lsp-systest-r3-workbench:r3 ONLY=seedscript node suites/api/kotlin-lsp-image.mjs` | 4 passed (host-run group) |
+| stage the context from `continuum-workbench/`: `git ls-files -co --exclude-standard -z` piped into `rsync -a --from0 --files-from=- --ignore-missing-args ./ <ctx>/`; then `docker build -t kotlin-lsp-systest-r3-workbench:r3 <ctx>` | exit 0 after 1 min 54 s, id `d82b9ded7039`, 4,794,791,656 bytes |
+| `NAME_PREFIX=kotlin-lsp-systest-r3 IMAGE=kotlin-lsp-systest-r3-workbench:r3 BASELINE_IMAGE=projectcontinuum/continuum-workbench:0.0.16 node suites/api/kotlin-lsp-image.mjs` (the local tag as baseline) | 48 passed, 1 failed (ST-13), 1 skipped of 50 |
+| `docker pull projectcontinuum/continuum-workbench@sha256:2c44cb8ab9d1388683fc060e8013e207c77e4ee7e28b5456273a481bc5570716`, then `docker tag` it as `kotlin-lsp-systest-r3-baseline:0.0.16` | 1 min 40 s; pre-feature confirmed (no seed script, entrypoint without the seeding), 4,378,995,222 bytes |
+| `… BASELINE_IMAGE=projectcontinuum/continuum-workbench:0.0.16 ONLY=image …` (guard proof against the overwritten tag) | 8 passed, 0 failed, 3 skipped |
+| `… BASELINE_IMAGE=kotlin-lsp-systest-r3-baseline:0.0.16 ONLY=image …` | 10 passed, 0 failed, 1 skipped (11 checks) |
+| `… BASELINE_IMAGE=kotlin-lsp-systest-r3-baseline:0.0.16 node suites/api/kotlin-lsp-image.mjs` (default groups, final) | 49 passed, 0 failed, 1 skipped (50 checks), exit 0; `asis` 65 / 0 / 1 of 66 plus root 1/1 |
+| `git diff HEAD -- entrypoint.sh` in `continuum-workbench` | exactly the 3 seeding lines (comment, seed command, blank line) |
+| cleanup | the `:3010` workbench stopped by pid (CLI 1796718, backend 1797276), `:3010` free, `:3005` (frontend tester, pid 1790243) untouched and still listening; `docker rmi kotlin-lsp-systest-r3-workbench:r3 kotlin-lsp-systest-r3-baseline:0.0.16` and the digest reference I pulled (`projectcontinuum/continuum-workbench@sha256:2c44…`); no `kotlin-lsp-systest-*` image, container or volume remains; the foreign `projectcontinuum/continuum-workbench:0.0.16` (`4686500514ad`), `:0.0.14` and the exited platform containers were not touched; scratch dirs under `/tmp/kotlin-lsp-systest-r3-*` removed; no `systestleak*` file in the backend's cwd; no Kotlin JVM of mine left |
 
-## Round 7
+### NOT VERIFIED
 
-### Environment
+- Server `--version`: the pinned server has no such option (see AC-20).
+- The ST-11 effect in the real browser (the first keystroke after a (re)start) and what the status chip shows during the ~86 s exhaustion window: the frontend tester's scope.
+- The dev backend's own log could not be grepped for the ST-11 signature (the tool returns only the first ~4 KB of an attached shell's output; later runs redirect the log into a file). The evidence for the log signature comes from the image's `docker logs` (0 `Reached end of file` lines); on the dev bundle the behavioural checks are the evidence.
+- Not re-run in Round 3 (not requested; the fix changes only version numbers and the seed script, so the Round 2 results stand): the image in 1 GiB and 2 GiB pod-like containers, the image exhaustion run, the production-default 600 s idle stop.
+- ST-7 (a second document opened within ~20 ms in steady state): not re-measured.
+- A real pod (PVC, the cluster manager's limits, other containers' memory); both servers (bridge and file-editor extension) in one pod (arithmetic only).
+- The `.kt` / `.kts` extension route at run time (plugin host, its own server): needs a browser, the frontend tester's suite covers it.
+- `yarn start` seeding at run time (it writes the real `~/.continuum`).
+- AC-15's dummy second language as a system check (unit-level only); `$/cancelRequest` reaching the server after a timeout (not visible from outside).
+- Whether a `make up` stack would really start the overwritten `0.0.16` tag (inferred from compose's default pull policy, not run), and who built it and why.
+- The remaining gap between the image's `.Size` and the file-level sizes (see "Image size").
+- The dev bundle with the network blocked (replaced by the image run).
 
-Fresh isolated Docker infrastructure (`loops-r7b`) with locally rebuilt backend jars from the current
-`continuum-platform-core` working tree and a feature-base worker rebuilt with `--include-build`. API server:
-`http://localhost:8080`; credentials server: `http://localhost:8083`; orchestration: `8090`; bridge: `8091`;
-worker: `8092`. JDK 21 was used for the rebuild; k6 v2.4.0. All processes and containers started for this round
-were stopped by PID/project cleanup. The stack was not a released `make up` image stack.
+### Plain-language summary (for a user decision)
 
-### AC coverage
+1. **The two small defects from the last round are fixed and checked.** The first keystroke after the language server starts or restarts is now analysed (it used to be thrown away in each editor that was already open, so a red marker or a completion could be stale for one keystroke), and a settings file saved with a byte-order mark no longer stops the Kotlin file-editor setup. The checks that showed the problems now pass on a developer build and in the production image, offline. Nothing to decide.
+2. **A local Docker image has been replaced under the release's name.** The local image `projectcontinuum/continuum-workbench:0.0.16` is, since 01:06 today, a build of the current working tree with the Kotlin support (5.5 GB), not the 0.0.16 release (4.4 GB). It matters because the system tests' own stack (`continuum-system-tests/docker/docker-compose.yml`) starts its workbench from that name, so a stack started now would run the new build and other tests would not be testing the release (not run, inferred), and because any "before and after" size comparison against 0.0.16 is meaningless. I did not touch it. Options: leave it if it is deliberate and give local builds their own tag from now on (for example `0.0.17-local`), or restore the release (`docker rmi projectcontinuum/continuum-workbench:0.0.16`, then `docker pull projectcontinuum/continuum-workbench:0.0.16`, about 1 GB to download).
+3. **For the record, the image size.** Against the real 0.0.16 release the Kotlin support makes the production image about 416 MB bigger (4.38 to 4.79 GB, +9.5 %). About 166 MiB of that is the Kotlin server, its Java runtime, the standard library and the editor extension; 65 MiB are unrelated assistant-tool layers that the rebuild refreshed; the rest of the difference I cannot explain. Nothing to decide unless a release note quotes a size.
+4. **Unchanged from the last round, no decision needed:** on a developer machine a replaced server (after running out of memory) peaks at 975 MB of the 1000 MB at which it would be restarted again; the image stays well below.
 
-| AC | Check name(s) | File | Result |
+### Knowledge updates
+
+- `.claude/knowledge/workbench.md`: section "Testing the bridge from outside" brought up to round 3: the second-backend recipe on `:3010` (redirect the backend output into a file, seed the config dir first), the image-runs bullet (the baseline-tag pitfall with the genuine release's digest, the compose line that pins the same tag, the `hasKotlinSupport` guard, the groups including `seedscript`, run durations, the round 3 build time and size), ST-11 and ST-12 turned into FIXED and verified with the numbers, the image-size analysis (+415.8 MB by `.Size`, +231 MiB by files, the Kotlin support about 166 MiB, the gap not explained), the replacement peak 975 MB, and 171 unit tests.
+- `.claude/knowledge/dev-environment.md`: the black-box image-run bullet gained the "a local image tag is not proof of a release" pitfall (compare id/created/size and `docker history`; pull the release by digest and tag it under your own name).
+- `.claude/knowledge/graph.json`: suite node docs updated (round 3 counts, the new group, the guard), the ST-11 node marked verified (with the numbers), the seed node marked verified (BOM cases), the edge text for the seed group, and a new node `workbench-image-baseline-tag-pitfall` with an edge from `kotlin-lsp-image-suite`. Validated: valid JSON, 52 nodes, 66 edges, unique kebab-case ids, every edge endpoint defined.
+- `.claude/knowledge/change-log.md`: one line for Round 3.
+
+---
+
+## Appendix A — check list of the Round 1 dev run (`:3006`, all default groups)
+
+| Group | Check | Result |
+|---|---|---|
+| lifecycle | no server process before the first editor connects | PASS |
+| lifecycle | one server for several editors that connect at the same instant (started lazily, reported starting then ready) | PASS |
+| lifecycle | a document opened while the server is still starting gets its diagnostics once the server is ready | **FAIL** (ST-2) |
+| lifecycle | a later editor reuses the running server (same process, ready at once) | PASS |
+| lifecycle | closing editors keeps the server for the editors that remain | PASS |
+| lifecycle | the server is not stopped the moment the last editor closes | PASS |
+| lifecycle | a reconnect inside the idle window reuses the server (idle stop cancelled) | PASS |
+| lifecycle | a vanished client lets the server stop after the 15 s idle timeout, not before | PASS |
+| lifecycle | the next connection after an idle stop starts a new server (lazily) | PASS |
+| lifecycle | a document opened while the restarted server is starting gets its diagnostics once ready | **FAIL** (ST-2) |
+| lifecycle | an orderly close lets the server stop after the 15 s idle timeout | PASS |
+| handshake | a client with the connection-token cookie completes the Theia handshake and the bridge channel opens | PASS |
+| handshake | a WebSocket upgrade without the connection-token cookie is refused | PASS |
+| handshake | a WebSocket upgrade with a foreign Origin is refused | PASS |
+| offline | the run has no outbound network | SKIP (image run covers it) |
+| diagnostics | initialize is answered by the bridge: full-text sync, server capabilities for the allowed features | PASS |
+| diagnostics | a type error is published at the user's line and column (the hidden header does not shift it) | PASS |
+| diagnostics | an error below leading imports is reported at the user's line (header goes after the imports) | PASS |
+| diagnostics | the documented clean script is analysed and publishes no diagnostics at all | PASS |
+| diagnostics | fixing the error clears the markers | PASS |
+| diagnostics | typing `flow.` offers get, set and all | PASS |
+| diagnostics | typing `row.` offers the members of Map<String, Any> | PASS |
+| diagnostics | the Kotlin standard library resolves (`"abc".le` offers String.length and the stdlib's let) | PASS |
+| diagnostics | hovering `flow.set` shows its signature and KDoc | PASS |
+| diagnostics | signature help appears after `flow.set(` | PASS |
+| packaging | the server and its runtime run from the bundled install directory | SKIP (image only; PASS in the image) |
+| documents | the owner of a document can read it | PASS |
+| documents | another connection cannot open or read a document the first one has open | PASS |
+| documents | diagnostics of one connection's documents never reach another connection | PASS |
+| documents | closing a document releases it: another connection can then open it | PASS |
+| documents | a connection that vanishes releases its documents | PASS |
+| documents | a full-text didChange is applied; an incremental (range) change is refused | PASS |
+| documents | at most 50 documents per connection; the 51st is refused | PASS |
+| security | a connection for an unknown or malformed language id is refused (7 ids) | PASS |
+| security | a request on the connection's own virtual document is served (non-vacuous isolation) | PASS |
+| security | requests naming a file: path or a malformed document URI are refused with -32602 (19 spellings) | PASS |
+| security | didOpen of a file: or malformed URI is dropped: no analysis, no diagnostics | PASS |
+| security | a document URI hidden in other parameters is refused too (nested `uri` / `*Uri` keys) | PASS |
+| security | methods outside the documented set are refused with -32602 (10) | PASS |
+| security | notifications that could widen the server's reach are dropped silently | PASS |
+| security | a client cannot widen the roots through initialize | PASS |
+| security | didOpen with another language id and a message for a never-opened document are refused | PASS |
+| security | malformed JSON-RPC is ignored; the connection and the backend keep working | PASS |
+| security | shutdown and exit from one client do not stop the shared server | PASS |
+| security | the server runs inside its private directory, which holds only the seeded declarations | PASS |
+| leak | a Kotlin file in the backend's workspace folder is invisible to the server | PASS |
+| memory | the server process is started with -Xmx512m (and the other JVM limits) | PASS |
+| memory | one editor: resident memory stays below the 1000 MB restart ceiling, no restart, every answer served | PASS |
+| memory | 5 editors at once: every completion served, memory below the ceiling, no restart | PASS |
+| exhaustion | a server whose heap is full is replaced or recovers | SKIP (opt-in; run separately: 2 pass, 1 FAIL, ST-3) |
+| protocol | only state notices, diagnostics and responses reached the clients | PASS |
+| protocol | the server's own file: paths and private directory never reach a client | PASS |
+| protocol | the server never sends a request to a client | PASS |
+
+---
+
+## Appendix B — checks added or changed in Round 2 (dev `:3009` and image, offline)
+
+| Group | Check | Dev | Image |
 |---|---|---|---|
-| AC-6 | Loop registration, search/tree/category visibility, documentation and MCP metadata | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-7 | Default settings plus maxIterations, enum, empty and over-length validation; ProblemDetail start rejection | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-9 | Loop-port edge rejection and no false “not connected” error | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-10 | Leave-and-return edge rejection and valid outside-to-outside path | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-13 | Rejected/accepted CEL conditions over `/validate`, workflow start 400, MCP validation/build | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-16 | Three-iteration loop, carried variables, progress and terminal result | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-17 | `check: before`, including false-before-first-iteration behavior | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-20 | Nested loops, iteration resets, progress and member execution | `suites/api/loops.js` | PASS — 249/249 checks |
-| AC-21 | Carried variables and outside-value override behavior | `suites/api/loops.js` | PASS — 249/249 checks |
-| Regression | Complete API suite: workflow 15/15, runs 30/30, schedules 36/36, node-explorer 19/19, data 45/45, credentials 54/54, loops 249/249 | `Makefile` / `suites/api/` | PASS |
-| Smoke | Health, workflow and credential lifecycle | `suites/smoke.js` | PASS — 10/10 |
-| Tenancy | Owner reads paired with tenant-B isolation for runs, outputs, credentials and schedules | `suites/tenancy/isolation.js` | PASS — 32/32; `isolation_violations` 0 |
+| lifecycle | a document opened while the server is still starting gets its diagnostics once the server is ready | PASS (was FAIL) | PASS |
+| lifecycle | a document opened while the restarted server is starting gets its diagnostics once ready | PASS (was FAIL) | PASS |
+| coldwindow | a script opened 0 / 150 / 400 / 490 / 510 / 700 / 1500 ms after a cold server became ready gets its diagnostics (7 checks) | PASS | PASS |
+| coldwindow | 3 scripts opened one after another while a cold server is still starting all get their diagnostics (within 10 s of ready) | PASS (all at +877 ms) | PASS (+864 ms) |
+| coldwindow | the first edit after the bridge re-sent the open documents is applied by the server | **FAIL** (ST-11) | **FAIL** (ST-11) |
+| diagnostics | the documented clean script is analysed and publishes no diagnostics at all | PASS | PASS (was FAIL) |
+| diagnostics | the Kotlin standard library resolves (`"abc".le`) | PASS | PASS (was FAIL; 75 items) |
+| diagnostics | classes of the Java modules a script can reasonably use resolve (java.net.http, java.sql, java.rmi, javax.tools, org.ietf.jgss): no unresolved reference | PASS | PASS (ST-5 fixed) |
+| diagnostics | a class of a module the image's reduced runtime does not ship (com.sun.net.httpserver, module jdk.httpserver) (measurement) | resolved | unresolved (by design) |
+| diagnostics | initialize promises only features the bridge serves: every promised method is answered (not refused) on an owned document | PASS | PASS |
+| exhaustion (opt-in) | how many scripts can be open at once (measurement) | 11th fails | 16th (unlimited), 13th (1 and 2 GiB) |
+| exhaustion (opt-in) | a server whose heap is full is replaced by the bridge while the editors stay open (a starting state follows the first failed answer) | PASS (was FAIL) | PASS (was FAIL) |
+| exhaustion (opt-in) | the exhaustion ends in a defined state, not a silent hang | PASS | PASS |
+| exhaustion (opt-in) | the replaced server keeps up while the editors keep typing (180 s of edits on the open scripts) | PASS (133/133) | PASS (147/147, 1 GiB) |
+| exhaustion (opt-in) | after the scripts are closed a working server answers again (within 5 s on a fresh script) | PASS (34 ms) | PASS (310 ms) |
+| exhaustion (opt-in) | every server process of the run was started with -Xmx512m and stayed below the 1000 MB restart ceiling | PASS (905 / 968 MB) | PASS (808 / 820 MB, 1 GiB) |
+| image | the Java runtime is reduced (jlink) but complete for the server: 19 modules, no JDK compiler module, no javac, no other Java on the PATH | n/a | PASS |
+| image | those modules export the packages that need them | n/a | PASS |
+| image | the Kotlin standard library is installed in a Maven-layout repository (the server's own jar), `MAVEN_REPOSITORY` points at it, the launcher is installed and executable | n/a | PASS |
+| launcher | the launcher, started with a minimal environment and no network, speaks LSP over stdio; through it `"abc".le` completes with `length` and `let`; control: the server's own start script gives 1 item | n/a | PASS ×3 |
+| seed | contract and edge cases (defaults, user keys kept, JSONC merged, backup once, repeatable, unparsable left unchanged, container still serves; BOM measurement) | n/a | PASS ×12 |
+| pod-limit | 1 GiB and 2 GiB containers: diagnostics, memory, exhaustion, not OOM-killed | n/a | PASS (16, and 8 with the soak) |
 
-### Failures
+---
 
-- No backend check failed against the freshly rebuilt changed stack.
-- An initial suite attempt exposed a missing MCP extra-header merge in the recovered helper and stopped before
-  execution; `lib/tenant.js` was corrected, then static checks and the live suite passed.
-- An initial smoke/tenancy attempt raced credentials-server startup and failed with connection refused; after the
-  service was ready, smoke and tenancy passed. This was an environment timing issue, not a backend finding.
-- The first Gradle attempt under system JDK 25 failed with `25.0.5.1`; rebuilding with the available JDK 21 passed.
+## Appendix C — checks added or changed in Round 3 (dev `:3010` and image, offline)
 
-### Files changed
-
-- Recovered from the project remote: `continuum-system-tests/suites/api/loops.js`,
-  `lib/loopmodel.js`, `lib/loopscenarios.js`, `test/loopmodel.test.js`, `test/loopscenarios.test.js`.
-- Updated `continuum-system-tests/lib/tenant.js` for MCP extra headers.
-- Updated `continuum-system-tests/Makefile` to include `loops` in `API_SUITES`.
-- Appended this report section. No production source was changed; no commit or push was made.
-
-### Commands run
-
-| Command | Result |
-|---|---|
-| `doctor.sh --quiet` | Node/npm absent in the profile; existing Node 22 runtime under the credentials-server Gradle cache was used for static checks. |
-| `npm test` | PASS — 77/77 |
-| `npm run check` | PASS |
-| Gradle backend boot jars with JDK 21, `--offline` | PASS |
-| Feature-base worker boot jar with JDK 21, `--offline --include-build` | PASS |
-| `./run.sh suites/api/loops.js` against freshly rebuilt stack | PASS — 249/249, `isolation_violations` 0 |
-| `make api` against freshly rebuilt stack | PASS — 7 suites, 448 checks total |
-| `./run.sh smoke` | PASS — 10/10 |
-| `./run.sh tenancy` | PASS — 32/32, `isolation_violations` 0 |
-| `docker compose -p loops-r7b ... down` and PID-specific `kill` | PASS — started services and infrastructure stopped |
-
-## Round 8
-
-### Environment
-
-Controlled isolated infrastructure project `loops-r8`, using the current rebuilt orchestration jar from
-`continuum-platform-core` and JDK 21-built artifacts. Kafka brokers and schema registry were deliberately stopped
-before orchestration startup, then restored during the retry window. No API server, bridge, worker, or unrelated
-stack was changed. The orchestration process and all `loops-r8` containers were stopped afterward.
-
-### AC coverage
-
-| AC | Check name(s) | File | Result |
+| Group | Check | Dev | Image |
 |---|---|---|---|
-| AC-5 | Built-in Loop registration retries after broker/schema outage with the documented exponential delays, then succeeds after recovery | orchestration startup log; `registration/RetryingRegistration.kt` | PASS — live log showed attempts 1–4 failed, delays 5s, 10s, 20s, 40s, then attempt 5 published successfully after broker/schema recovery |
-| AC-26, AC-27 | Explicit Temporal replay and recorded Loop start-verdict behavior | `ContinuumWorkflowLoopReplayTest.kt`, `ContinuumWorkflowLoopTest.kt` | NOT VERIFIED as an external system check — focused current-source Temporal tests passed, but HTTP cannot force a replay with a changed validator/evaluator or inspect Temporal history directly |
-
-### Failures
-
-- No registration retry check failed. The outage was observable in the orchestration log as Kafka producer provisioning
-  timeout followed by the application retry policy; recovery was observed as successful attempt 5.
-- The replay/start-verdict scenario is not safely reproducible from the public HTTP API. The focused tests are
-  in-process Temporal test-environment evidence, not black-box live-stack evidence, so this remains NOT VERIFIED for
-  system-test purposes rather than being promoted to PASS.
-
-### Files changed
-
-- Appended this Round 8 section only. No production source, system-test source, commit, or push was made.
-
-### Commands run
-
-| Command | Result |
-|---|---|
-| `docker compose -p loops-r8 ... up ...` then `stop kafka1 kafka2 kafka3 schema-registry` | PASS — controlled broker/schema outage established |
-| Start current orchestration jar during outage | PASS — service started without blocking |
-| Restore Kafka and schema registry during retry window | PASS |
-| Orchestration log inspection | PASS — failures and 5/10/20/40-second retry schedule, then attempt-5 publish |
-| `./gradlew --offline :continuum-orchestration-service:test --tests '*ContinuumWorkflowLoopReplayTest' --tests '*ContinuumWorkflowLoopTest'` with JDK 21 | PASS — BUILD SUCCESSFUL |
-| PID-specific `kill` and `docker compose -p loops-r8 ... down` | PASS — cleanup complete |
+| coldwindow | the first edit after the bridge re-sent the open documents is applied by the server (document version 2; diagnostics update and a completion sees the new text) | PASS (was FAIL, ST-11) | PASS (was FAIL) |
+| coldwindow | **new:** a mistake typed as the first edit while the cold server starts (a clean two-line script open, version 2 appends `val oops: Int = "typed"`) is reported as a severity-1 diagnostic at the typed line (0-based line 2, column 16), no error above it | PASS (506 ms after the edit) | PASS (306 ms) |
+| seedscript (host-run, image driver) | **new group, 4 checks:** BOM + plain JSON (exit 0, mark gone, user keys kept, marker, no `.tmp`); BOM + commented file (merged, the backup keeps the original bytes including the mark); a file that holds only a BOM (treated as empty); BOM + broken JSON (exit 1, file byte-identical, no marker) | PASS ×4 | n/a (host) |
+| seed | the "settings file saved with a UTF-8 byte-order mark (measurement)" check replaced by three normal checks: direct plain-JSON BOM, BOM + commented with identical backup bytes, end to end through the entrypoint on a volume | n/a | PASS ×3 (seed 14/14) |
+| image | the two baseline comparisons (starts like the baseline; entrypoint differs only by the seeding) SKIP, NOT VERIFIED with the reason, when the baseline image already carries `CONTINUUM_KOTLIN_LS_HOME` (`hasKotlinSupport`) | n/a | PASS against the genuine release; the SKIP proven against the overwritten local tag |

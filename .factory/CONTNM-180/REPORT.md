@@ -1,91 +1,110 @@
-# Loops — Feature report
-Date: 2026-11-27 · Status: **READY WITH OPEN ITEMS**
+# Kotlin language intelligence and workbench memory — Feature report
+Date: 2026-11-28 · Status: READY WITH OPEN ITEMS
 
 ## Overview
-Workflow authors can place nodes in a Loop and repeat them while a CEL condition on flow variables is true. The
-workbench supports creating, nesting, resizing, collapsing and configuring loops, and the run viewer shows iteration
-progress and member status. The backend validates and executes loops with carried variables, limits, replay-safe
-condition outcomes and correct terminal statuses.  
-**User story:** As a workflow author, I want nodes to repeat while a condition holds, so I can page through data, poll
-for a result or retry work without duplicating nodes.
+The workbench now provides Kotlin completion, hover, signature help, and semantic diagnostics for the Kotlin Script
+node editor and for `.kt` files. The Script editor uses a standalone Monaco model with a hidden context wrapper for
+`row` and `flow`; the wrapper is never saved. Real files use the bundled `fwcd.kotlin` extension. The feature is
+packaged offline with a pinned Kotlin language server and JRE, and new workbenches have memory defaults suitable for
+the language tooling.
 
 ## How to use it
-In the workbench, open **Node Explorer → Flow Control → Loop**, drag a Loop to the canvas, move nodes inside it,
-configure its CEL condition and iteration policy, run the workflow, and inspect iteration/member results. REST workflow
-JSON uses `type: "Loop"` and member `parentNode`; MCP uses member `parent`.
+Open a Kotlin Script node and type `flow.` or hover `flow.set`; the status chip reports starting, ready, or
+unavailable. Open a `.kt` file in the workbench file editor for file-language support. Save continues to store exactly
+the script text entered by the user.
 
 ## What changed
 | Repo | Area | Change | Key files |
 |---|---|---|---|
-| continuum-platform-core | Model, validation, CEL, orchestration, API/MCP, run status | Built-in Loop registration with retry/backoff, nested execution, carried variables, bounded evaluation, replay-safe outcomes and termination handling. | `continuum-commons/.../model/LoopNode.kt`; `continuum-loop-condition/...`; `continuum-orchestration-service/.../workflow/loop/` |
-| continuum-workbench | Editor, settings, viewer, generated clients | Loop canvas/membership/collapse/resize, Builder/CEL dialog and validation feedback, runtime display and generated model updates. | `workflow-editor-extension/src/browser/components/node/LoopNode.tsx`; `.../useLoopCanvas.tsx`; `.../node-dialog/loop-condition/` |
-| continuum-system-tests | API/UI harness | Loop API scenarios and helpers, UI scenarios, static checks and API-suite registration. | `suites/api/loops.js`; `lib/loopmodel.js`; `lib/loopscenarios.js`; `suites/ui/` |
-| continuum-docs | Platform 0.0.23 “next” | Loop user, architecture and operations guidance, including workbench usage. | `docs/feature-nodes/loop.md`; `docs/architecture/loops.md`; `docs/deployment/loops-operations.md` |
+| continuum-workbench | LSP and packaging | Added generic Theia/Monaco bridge, Kotlin registration and prelude, pinned `fwcd.kotlin` plugin, JRE/server image packaging, settings seeding, status UI, and editor-language isolation. | `language-server-extension/`; `workflow-editor-extension/src/browser/{components/node-dialog,contribution,hooks,store}`; `Dockerfile`; `entrypoint.sh`; `scripts/*`; READMEs and release notes |
+| continuum-feature-base | Script contract | Documented/pinned `row` and `flow` bindings and `ScriptFlowVariables` API with a contract test. | `features/continuum-feature-analytics/.../KotlinScriptNodeModel.kt`; `ScriptFlowVariables.kt`; `.../KotlinScriptBindingsContractTest.kt` |
+| continuum-platform-core | Workbench resources | Raised defaults and presets, validated request ≤ limit after merging partial resources, updated tests and API documentation. | `continuum-cluster-manager/{src,frontend}`; `docs/api/continuum-cluster-manager.openapi.yaml`; release notes |
+| continuum-system-tests | Verification | Added bridge/image helpers and API/UI suites for LSP, packaging, security, lifecycle, memory, and editor behavior. | `lib/*lsp*`, `suites/api/kotlin-lsp-*`, `suites/ui/kotlin-lsp.mjs`, `test/*` |
+| continuum-docs | User/contributor docs | Added Kotlin editing, language-intelligence architecture, and workbench-resource pages. | `docs/feature-nodes/base-analytics.md`; `docs/architecture/language-intelligence.md`; `docs/deployment/workbench-resources.md` |
 
 ### API changes
-No endpoint, operationId or enum change. The existing contract documents Loop fields and semantics; the current core
-OpenAPI diff is description-only.
+No new platform endpoint. The existing workbench create/update resource contract now rejects a merged request above
+its matching limit with HTTP 400; the committed OpenAPI spec and inventory describe this rule.
 
 ### Documentation
-`continuum-docs` targets unreleased platform `0.0.23`; no version snapshot was made. Round 2 updated the user and
-operations pages. `npm run build` and `git diff --check` passed. Mermaid rendering and the Kotlin recipe compilation
-remain **NOT VERIFIED**.
+The unreleased `continuum-docs/docs/` site has three pages added or updated. `npm run build` passed.
 
 ### Breaking changes / upgrade notes
-- Failed node/loop runs are recorded as `FAILED`; clients filtering statuses should account for this.
-- Deploy orchestration service, API server and message bridge together at 0.0.23; Loop registration requires schema
-  registry support and a Loop-capable workbench.
-- The pending terminate action is intentionally in-memory for a five-second grace period and can be lost on API-server
-  restart; retry cancel/terminate after restart.
+The image is larger and includes JRE 21 plus fwcd Kotlin language-server assets. New workbenches default to
+2Gi request / 4Gi limit. Existing workbenches retain their stored resources until recreated or updated.
 
-## Acceptance criteria
-| AC | Criterion | Status | Evidence (test / browser / review) |
-|---|---|---|---|
-| AC-3, 6–7, 9–11, 13–15, 16–22, 24–25, 30, 32–38, 40, 44 | Loop contract, validation, topology, CEL, iteration, carried variables, nesting, statuses, UI and regression behavior | **VERIFIED** | Loop API 249/249; full API 448, smoke 10/10, tenancy 32/32; browser `ONLY=run` and status-contrast passed; workbench tests/build passed. |
-| AC-5 | Built-in Loop registration retries after a real broker/schema outage | **VERIFIED** | Round 8 live outage: attempts 1–4 failed, then 5s/10s/20s/40s delays and attempt-5 recovery after restoration. |
-| AC-23, 42–43 | History guard and bounded condition-evaluation behavior | **VERIFIED** | Focused current-source tests plus live system checks; no workflow-task failure in the exercised regression suites. |
-| AC-22(e) | JSON-to-CEL collection/type behavior over the large-list shape | **NOT VERIFIED** | The live worker fixture cannot set the required list variables; unit/Temporal coverage exists. |
-| AC-26, AC-27 | Explicit Temporal replay and recorded start-verdict behavior | **PARTIALLY VERIFIED** | Focused current-source Temporal tests pass, including replay/start-verdict coverage. External verification is **NOT VERIFIED**: HTTP cannot safely induce a changed evaluator/validator replay or inspect Temporal history. |
-| Browser environment quality | Clean browser console/runtime environment | **PARTIALLY VERIFIED** | Loop assertions passed, but pre-existing Theia disposed-view errors and favicon 404s were observed. |
+## Acceptance results
+| Criterion | Status | Evidence |
+|---|---|---|
+| Script completion, hover, signature help, diagnostics, independent dialogs, and exact save text | VERIFIED | Prior browser round passed these scenarios, including visible completion/hover/signature widgets, independent diagnostics, and save round-trip. |
+| Kotlin `.kt` file intelligence | VERIFIED | Prior browser round: type-error marker, `listOf` hover, and `xs.ma` completion passed; `fwcd.kotlin` activated only for real files. |
+| Kotlin `.kts` support | PARTIALLY VERIFIED | Completion and deliberate error passed, but upstream `MISSING_SCRIPT_STANDARD_TEMPLATE` whole-file false diagnostic and a hover error remain. |
+| Graceful unavailable/restart behavior | VERIFIED | Prior browser round passed editing, save, status transitions, restart, and unavailable handling; system lifecycle checks passed. |
+| Script context and position mapping | VERIFIED | Language-server specs passed; system diagnostics confirmed exact user line/column and clean `row`/`flow` script. |
+| Offline production image and bridge security/lifecycle | VERIFIED | Round-3 image run: 65 passed, 0 failed, 1 skipped as uid 1000 with `--network none`; bridge dev run 63 passed, 0 failed, 3 skipped. |
+| First edit after diagnostics nudge and BOM settings seeding | VERIFIED | Round-3 system test passed the first-edit fix and all BOM seed cases; image run passed 49, 0 failed, 1 skipped. |
+| Memory ceiling and JVM launch flags | VERIFIED | System checks observed `-Xmx512m` plus JVM caps and RSS below the 1000 MB restart ceiling. |
+| Workbench resource defaults and validation | VERIFIED | `continuum-cluster-manager`: 289 tests pass offline; OpenAPI generation/drift and redocly validation pass. Requests above limits return 400. |
+| Production workbench build and serving | VERIFIED | Workbench build #5 succeeded; `:3005` returned HTTP 200. |
+| Final browser visual/regression round | NOT VERIFIED | Browser tester and final system tester did not return because of temporary Copilot API DNS errors. The prior browser/system round passes remain valid evidence; no final visual regression claim is made. |
 
 ## Quality
-- Unit tests: backend **904 passed**, PostgreSQL **3 passed**, system-test static/npm **77/77**, workbench **182/182 reported**.
-- System tests: Loop API **249/249**, full API **448**, smoke **10/10**, tenancy **32/32**, zero isolation violations.
-- Browser tests: focused run and status contrast passed with screenshots; environment noise remains.
-- Reviews: backend **APPROVED**, frontend **APPROVED**; no unresolved review findings.
-- Fix rounds used: backend developer through Round 12 / review Round 7; frontend review Round 10; browser Round 7;
-  docs Round 2.
+- Unit/type tests: language-server-extension **228/228** and `tsc` pass; system-test helper `npm test`
+  **171/171** and `npm run check` pass; cluster-manager **289** tests pass offline.
+- System tests: round 3 passed the first-edit fix, BOM seed cases, and offline image checks.
+- Browser tests: prior round passed the Script dialog, `.kt`, fallback, save, isolation, and unchanged non-Kotlin
+  editors; final visual/browser regression is **NOT VERIFIED**.
+- Reviews: backend review is approved with no blocker/major findings; 12 minor and 11 nit findings remain. The
+  frontend review's requested wording/transport-guard fixes are present, but its final re-review response was not
+  returned.
+- Fix rounds used: three implementation/fix rounds.
+
+## Kotlin behavior and accepted limits
+- The selected server is fwcd Kotlin language-server 1.3.13, wrapped as `.kt`; `.kts` is limited.
+- The server provides semantic diagnostics but no syntax-error markers for missing braces, parentheses, or similar
+  parser errors. The node may report those errors when it runs.
+- The hidden function wrapper can report false “cannot be local” diagnostics for top-level `object`, `enum class`,
+  `interface`, `typealias`, and `const val` declarations. The runtime engine's acceptance of those declarations was
+  not verified.
+- JSON editors remain uncoloured by design; the workbench does not register JSON for these controls.
+
+## Pod memory facts and decisions
+- Default and Small preset: **2Gi request / 4Gi limit**.
+- Shifted ladder: **4Gi/8Gi**, **8Gi/16Gi**, **16Gi/32Gi**; existing workbenches are unchanged.
+- A merged request greater than its limit returns **400** rather than a later deployment failure.
+- Operators on small clusters must check node capacity before upgrading; the chart itself does not set workbench pod
+  memory.
+- While the user was unavailable, the implementation chose a dedicated bridge for standalone Script Monaco, fwcd for
+  files, a separate editor language id, fixed overflow widgets, the shifted ladder, no JSON colors, and documented
+  language-server limits.
 
 ## Open items
-- External Temporal replay/start-verdict verification remains unavailable through the public HTTP surface; do not
-  represent focused tests as a black-box replay pass.
-- AC-22(e)'s large collection live shape remains unverified.
-- The five-second restart durability limitation is intentional and documented; no durable scheduler was added.
-- Browser environment cleanup (Theia disposed-view errors and favicon 404) remains open and is unrelated to Loop
-  assertions.
-- Docs Mermaid rendering and Kotlin recipe compilation remain unverified.
-- Cold-start Temporal behavior on a 0.5-CPU environment is a pre-existing, unrelated issue.
-- The Round 7 stack was a freshly rebuilt local verification environment, not a released production deployment.
+- **MINOR:** `.kts` false whole-file diagnostic and one internal hover error remain upstream limitations.
+- **MINOR:** no syntax-error markers; wrapper false positives for script-level declarations are documented but not
+  filtered because runtime acceptance is unknown.
+- **MINOR/NIT:** several approved-review implementation-quality items remain (connection retry console noise, limits on
+  bridge input, process-tree/memory accounting details, and small lifecycle/disposal cleanups).
+- **NOT VERIFIED:** thin browser-only build, real OOM restart path, unseeded `yarn start` auto-seeding, and runtime
+  acceptance of the script-level declarations.
+- The local Docker tag `projectcontinuum/continuum-workbench:0.0.16` is a working-tree image, not the published
+  baseline. Restore/pin a separate tag before using compose or comparing against the release.
 
 ## User actions before merge
-- Review and selectively commit intended changes in `continuum-platform-core`, `continuum-workbench`,
-  `continuum-system-tests` and `continuum-docs`; no commit or push was made here.
-- In `continuum-workbench`, keep `workflow-editor-extension/package.json` and `yarn.lock` together.
-- Inspect recovered system-test helpers, machine-specific workflow edits, local hooks, UI tests and screenshots before
-  selecting files.
-- Run OpenAPI generation/lint only if the API contract changes; the current core diff has no schema/operation change.
-- Commit/push the two docs edits on the unreleased `platform/0.0.23` branch; do not snapshot unreleased docs.
-- If release evidence requires it, repeat the Temporal replay scenario inside the target deployment using an approved
-  Temporal-native harness, not HTTP-only probes.
+1. Re-run the final browser/system regression when the temporary API/DNS failure is gone.
+2. Restore the published `0.0.16` image tag, or pin the working-tree image under a separate local tag, before compose
+   validation and baseline comparisons.
+3. Decide whether to accept the documented `.kts`, syntax-marker, and top-level-declaration limits as-is.
+4. Review the remaining minor/nit findings and verify node capacity for the shifted memory ladder.
+5. Commit each repository's working-tree changes and the factory report through the normal merge process.
 
 ## Discrepancies
-- `continuum-platform-core`: actual status is 16 modified tracked files plus one untracked PostgreSQL test; tracked
-  diff stat is **235 insertions / 33 deletions** and excludes the untracked test.
-- `continuum-workbench`: actual status is 21 modified tracked files plus untracked Loop UI/helper/spec files; tracked
-  diff stat is **527 insertions / 169 deletions** and excludes untracked files.
-- `continuum-system-tests`: actual status is 5 modified tracked files plus recovered untracked helpers, API/UI tests,
-  tests and screenshots; tracked diff stat is **210 insertions / 89 deletions** and excludes untracked files.
-- `continuum-docs`: actual status is exactly two modified tracked pages; tracked diff stat is **21 insertions / 5
-  deletions**. Other pages listed in `09-docs.md` are already in repository history, not this current diff.
-- `continuum-charts` and the feature-node, local-setup and website repositories are clean; no product changes were
-  found there.
+- The historical pod-memory artifact contains superseded 1Gi/2Gi values; the final implementation, release notes,
+  OpenAPI, tests, and current evidence use 2Gi/4Gi.
+- Some artifact sections describe earlier failing rounds; this report uses the later fixed round where available.
+- The docs artifact says the docs build passed, matching the current `continuum-docs` working tree; no product files were
+  changed by this report.
+
+## Knowledge updates
+None. The knowledge pages were already updated by the preceding phases; this report did not edit them.
+
+No commits were made.

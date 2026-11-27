@@ -2,71 +2,685 @@
   "version": 1,
   "about": "Curated Continuum knowledge graph. Keep ids stable; add nodes/edges when the system changes. See README.md.",
   "nodes": [
-    {"id": "platform-core", "type": "repo", "label": "continuum-platform-core", "doc": "architecture.md"},
-    {"id": "workbench", "type": "repo", "label": "continuum-workbench", "doc": "workbench.md"},
-    {"id": "feature-base", "type": "repo", "label": "continuum-feature-base", "doc": "architecture.md"},
-    {"id": "system-tests", "type": "repo", "label": "continuum-system-tests", "doc": "dev-environment.md"},
-    {"id": "docs", "type": "repo", "label": "continuum-docs", "doc": "architecture.md"},
-    {"id": "commons", "type": "module", "label": "continuum-commons", "path": "continuum-platform-core/continuum-commons"},
-    {"id": "orchestration", "type": "module", "label": "continuum-orchestration-service", "path": "continuum-platform-core/continuum-orchestration-service"},
-    {"id": "loop-condition", "type": "module", "label": "continuum-loop-condition", "path": "continuum-platform-core/continuum-loop-condition"},
-    {"id": "worker-starter", "type": "module", "label": "continuum-worker-springboot-starter", "path": "continuum-platform-core/continuum-worker-springboot-starter"},
-    {"id": "message-bridge", "type": "module", "label": "continuum-message-bridge", "path": "continuum-platform-core/continuum-message-bridge"},
-    {"id": "api-server", "type": "module", "label": "continuum-api-server", "path": "continuum-platform-core/continuum-api-server"},
-    {"id": "editor-extension", "type": "module", "label": "workflow-editor-extension", "path": "continuum-workbench/workflow-editor-extension"},
-    {"id": "workbench-core-types", "type": "module", "label": "@continuum/core (continuum-core)", "path": "continuum-workbench/continuum-core"},
-    {"id": "temporal", "type": "external", "label": "Temporal"},
-    {"id": "kafka", "type": "external", "label": "Kafka"},
-    {"id": "mqtt", "type": "external", "label": "MQTT (mosquitto)"},
-    {"id": "postgres", "type": "external", "label": "Postgres workflow_runs"},
-    {"id": "workflow-update", "type": "concept", "label": "WorkflowUpdate / WorkflowUpdateEvent", "path": "continuum-platform-core/continuum-commons/src/main/kotlin/org/projectcontinuum/core/commons/model/WorkflowUpdate.kt"},
-    {"id": "status-reporter", "type": "file", "label": "WorkflowStatusReporter", "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/WorkflowStatusReporter.kt"},
-    {"id": "dag-executor", "type": "file", "label": "WorkflowDagExecutor", "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/WorkflowDagExecutor.kt"},
-    {"id": "loop-runner", "type": "file", "label": "LoopRunner", "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/loop/LoopRunner.kt"},
-    {"id": "loop-history-guard", "type": "file", "label": "LoopHistoryGuard", "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/loop/LoopHistoryGuard.kt"},
-    {"id": "flow-variables", "type": "concept", "label": "Flow variables (default + iteration)", "doc": "workflows-and-loops.md"},
-    {"id": "loop-node", "type": "concept", "label": "Loop node", "doc": "workflows-and-loops.md"},
-    {"id": "history-limits", "type": "concept", "label": "Temporal history limits (51,200 hard / 40,000 loop guard)", "doc": "workflows-and-loops.md"},
-    {"id": "kotlin-script-node", "type": "file", "label": "KotlinScriptNodeModel + ScriptFlowVariables", "path": "continuum-feature-base/features/continuum-feature-analytics/src/main/kotlin/org/projectcontinuum/feature/base/analytics/node/KotlinScriptNodeModel.kt"},
-    {"id": "loop-node-ui", "type": "file", "label": "LoopNode.tsx", "path": "continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx"},
-    {"id": "workflow-viewer", "type": "file", "label": "WorkflowViewer.tsx + HistoryGauge.tsx", "path": "continuum-workbench/workflow-editor-extension/src/browser/components/workflow-viewer/WorkflowViewer.tsx"},
-    {"id": "viewer-widget", "type": "file", "label": "WorkflowViewerWidget.tsx", "path": "continuum-workbench/workflow-editor-extension/src/browser/widgets/workflow-viewer/WorkflowViewerWidget.tsx"},
-    {"id": "factory", "type": "process", "label": "/factory software factory", "path": ".claude/skills/factory/SKILL.md"},
-    {"id": "conventions", "type": "doc", "label": "factory CONVENTIONS", "path": ".claude/factory/CONVENTIONS.md"},
-    {"id": "openapi-spec", "type": "file", "label": "continuum-api-server.openapi.yaml", "path": "continuum-platform-core/docs/api/continuum-api-server.openapi.yaml"}
+    {
+      "id": "platform-core",
+      "type": "repo",
+      "label": "continuum-platform-core",
+      "doc": "architecture.md"
+    },
+    {
+      "id": "workbench",
+      "type": "repo",
+      "label": "continuum-workbench",
+      "doc": "workbench.md"
+    },
+    {
+      "id": "feature-base",
+      "type": "repo",
+      "label": "continuum-feature-base",
+      "doc": "architecture.md"
+    },
+    {
+      "id": "system-tests",
+      "type": "repo",
+      "label": "continuum-system-tests",
+      "doc": "dev-environment.md"
+    },
+    {
+      "id": "docs",
+      "type": "repo",
+      "label": "continuum-docs",
+      "doc": "architecture.md"
+    },
+    {
+      "id": "commons",
+      "type": "module",
+      "label": "continuum-commons",
+      "path": "continuum-platform-core/continuum-commons"
+    },
+    {
+      "id": "orchestration",
+      "type": "module",
+      "label": "continuum-orchestration-service",
+      "path": "continuum-platform-core/continuum-orchestration-service"
+    },
+    {
+      "id": "loop-condition",
+      "type": "module",
+      "label": "continuum-loop-condition",
+      "path": "continuum-platform-core/continuum-loop-condition"
+    },
+    {
+      "id": "worker-starter",
+      "type": "module",
+      "label": "continuum-worker-springboot-starter",
+      "path": "continuum-platform-core/continuum-worker-springboot-starter"
+    },
+    {
+      "id": "message-bridge",
+      "type": "module",
+      "label": "continuum-message-bridge",
+      "path": "continuum-platform-core/continuum-message-bridge"
+    },
+    {
+      "id": "api-server",
+      "type": "module",
+      "label": "continuum-api-server",
+      "path": "continuum-platform-core/continuum-api-server"
+    },
+    {
+      "id": "editor-extension",
+      "type": "module",
+      "label": "workflow-editor-extension",
+      "path": "continuum-workbench/workflow-editor-extension"
+    },
+    {
+      "id": "workbench-core-types",
+      "type": "module",
+      "label": "@continuum/core (continuum-core)",
+      "path": "continuum-workbench/continuum-core"
+    },
+    {
+      "id": "temporal",
+      "type": "external",
+      "label": "Temporal"
+    },
+    {
+      "id": "kafka",
+      "type": "external",
+      "label": "Kafka"
+    },
+    {
+      "id": "mqtt",
+      "type": "external",
+      "label": "MQTT (mosquitto)"
+    },
+    {
+      "id": "postgres",
+      "type": "external",
+      "label": "Postgres workflow_runs"
+    },
+    {
+      "id": "workflow-update",
+      "type": "concept",
+      "label": "WorkflowUpdate / WorkflowUpdateEvent",
+      "path": "continuum-platform-core/continuum-commons/src/main/kotlin/org/projectcontinuum/core/commons/model/WorkflowUpdate.kt"
+    },
+    {
+      "id": "status-reporter",
+      "type": "file",
+      "label": "WorkflowStatusReporter",
+      "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/WorkflowStatusReporter.kt"
+    },
+    {
+      "id": "dag-executor",
+      "type": "file",
+      "label": "WorkflowDagExecutor",
+      "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/WorkflowDagExecutor.kt"
+    },
+    {
+      "id": "loop-runner",
+      "type": "file",
+      "label": "LoopRunner",
+      "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/loop/LoopRunner.kt"
+    },
+    {
+      "id": "loop-history-guard",
+      "type": "file",
+      "label": "LoopHistoryGuard",
+      "path": "continuum-platform-core/continuum-orchestration-service/src/main/kotlin/org/projectcontinuum/core/orchestration/workflow/loop/LoopHistoryGuard.kt"
+    },
+    {
+      "id": "flow-variables",
+      "type": "concept",
+      "label": "Flow variables (default + iteration)",
+      "doc": "workflows-and-loops.md"
+    },
+    {
+      "id": "loop-node",
+      "type": "concept",
+      "label": "Loop node",
+      "doc": "workflows-and-loops.md"
+    },
+    {
+      "id": "history-limits",
+      "type": "concept",
+      "label": "Temporal history limits (51,200 hard / 40,000 loop guard)",
+      "doc": "workflows-and-loops.md"
+    },
+    {
+      "id": "kotlin-script-node",
+      "type": "file",
+      "label": "KotlinScriptNodeModel + ScriptFlowVariables",
+      "path": "continuum-feature-base/features/continuum-feature-analytics/src/main/kotlin/org/projectcontinuum/feature/base/analytics/node/KotlinScriptNodeModel.kt"
+    },
+    {
+      "id": "loop-node-ui",
+      "type": "file",
+      "label": "LoopNode.tsx",
+      "path": "continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx"
+    },
+    {
+      "id": "workflow-viewer",
+      "type": "file",
+      "label": "WorkflowViewer.tsx + HistoryGauge.tsx",
+      "path": "continuum-workbench/workflow-editor-extension/src/browser/components/workflow-viewer/WorkflowViewer.tsx"
+    },
+    {
+      "id": "viewer-widget",
+      "type": "file",
+      "label": "WorkflowViewerWidget.tsx",
+      "path": "continuum-workbench/workflow-editor-extension/src/browser/widgets/workflow-viewer/WorkflowViewerWidget.tsx"
+    },
+    {
+      "id": "factory",
+      "type": "process",
+      "label": "/factory software factory",
+      "path": ".claude/skills/factory/SKILL.md"
+    },
+    {
+      "id": "conventions",
+      "type": "doc",
+      "label": "factory CONVENTIONS",
+      "path": ".claude/factory/CONVENTIONS.md"
+    },
+    {
+      "id": "openapi-spec",
+      "type": "file",
+      "label": "continuum-api-server.openapi.yaml",
+      "path": "continuum-platform-core/docs/api/continuum-api-server.openapi.yaml"
+    },
+    {
+      "id": "node-dialog-code-editor",
+      "type": "file",
+      "label": "CodeEditorRenderer / MonacoEditorWrapper",
+      "doc": "Standalone Monaco (no file URI) used for script editing in the node dialog; mounts LanguageIntelligenceFooter only for an explicitly declared, served language. Browser round 2 (build #3, verified): reads `props.uischema.options` (FE-A fixed), `fixedOverflowWidgets: true` (suggest widget 430x228 px, position fixed, 100% inside the viewport; FE-B fixed), and its Monaco language comes from common/DialogEditorLanguage.ts (`kotlin` -> `continuum-kotlin-script`, `freemarker` -> freemarker2, undeclared -> plaintext) so only Script dialogs start the bridge server and no dialog wakes the file-editor extension. `json` is not a registered Monaco language in this build (JSON editors render plain). workflow-editor-extension/src/browser/components/{node-dialog/CodeEditorRenderer.tsx,monaco/MonacoEditorWrapper.tsx}"
+    },
+    {
+      "id": "language-server-extension",
+      "type": "module",
+      "label": "language-server-extension (generic LSP core)",
+      "doc": "workbench.md"
+    },
+    {
+      "id": "lsp-browser-client",
+      "type": "module",
+      "label": "language-server-extension/src/browser (generic browser LSP client)",
+      "doc": "LanguageIntelligenceService.attach(model, languageId) -> LanguageSession; JsonRpcLspConnection over vscode-jsonrpc/browser; MonacoLspAdapter with injected Monaco; one channel message = one JSON-RPC string (writeString/readString) matching the backend bridge"
+    },
+    {
+      "id": "lsp-backend-bridge",
+      "type": "module",
+      "label": "language-server-extension/src/node (backend bridge)",
+      "doc": "workbench.md: LanguageServerBridge (route per id; a throwing receive is answered -32602 without logging the payload) -> LanguageServerHost = LanguageServerLifecycle (lazy start, idle stop, back-off restart, /proc RSS ceiling) + LspServerInitializer (readiness = completion request) + LanguageServerMultiplexer (id remap, diagnostics routing, replay) + ClientMessageGuard (method allow-list + isAllowedDocumentUri) + ServerHealthMonitor (3 failed answers / 30 s request timeouts -> replacement; measured 51 s after the first failed answer, serving again ~86 s) + DiagnosticsNudge (no-op full-text didChange 500 ms after ready; its version+1 is never recorded = finding diagnostics-nudge-version-collision)"
+    },
+    {
+      "id": "kotlin-ls-packaging",
+      "type": "file",
+      "label": "scripts/download-kotlin-ls.sh + Dockerfile stage kotlin-ls-jre",
+      "path": "continuum-workbench/scripts/download-kotlin-ls.sh",
+      "doc": "pinned fwcd 1.3.13 + sha256 only in the script; image installs server+jlink JRE 21 (19 modules since the fix round, verified by behaviour in backend system tests round 2) in /opt/continuum/kotlin-ls, with the Kotlin stdlib as a Maven-layout copy under m2 (ENV MAVEN_REPOSITORY) and the launcher bin/kotlin-language-server; image 4573 MiB (+6.2 MB vs round 1); workbench.md: 'Testing the bridge from outside'"
+    },
+    {
+      "id": "lsp-kotlin-language",
+      "type": "module",
+      "label": "language-server-extension/src/kotlin + src/node/kotlin (Kotlin registration, prelude, launch)",
+      "doc": "workbench.md: registration id kotlin-script; KotlinScriptPrelude wraps script (leading imports, comments, KDoc and @file: lines hoisted above the hidden header that declares row/flow); ScriptFlowVariables stub mirrors feature-base class (drift spec + KotlinScriptBindingsContractTest); launch from CONTINUUM_KOTLIN_LS_HOME/CONTINUUM_JAVA_HOME or, in dev, the .kotlin-ls dir found by walking up (round 2: works without the env var), MAVEN_REPOSITORY = <install>/m2 so the stdlib needs no ~/.gradle. Browser round 2 limits: the stock server gives no syntax errors and the function-body wrapper gives false errors for script-level object/enum/interface/typealias"
+    },
+    {
+      "id": "use-language-intelligence",
+      "type": "module",
+      "label": "useLanguageIntelligence hook + LanguageIntelligenceFooter (workflow-editor-extension)",
+      "doc": "workbench.md"
+    },
+    {
+      "id": "kotlin-lsp-bridge-suite",
+      "type": "file",
+      "label": "Kotlin language-server bridge system suite (plain Node: raw Socket.IO + Theia channel multiplexer client)",
+      "path": "continuum-system-tests/suites/api/kotlin-lsp-bridge.mjs",
+      "doc": "workbench.md: 'Testing the bridge from outside' (wire recipe, how to run, what it found); groups handshake offline lifecycle packaging coldwindow diagnostics documents security leak memory protocol + opt-in exhaustion (env EXHAUSTION_SOAK_SECONDS, EXHAUSTION_WATCH_SECONDS, EXHAUSTION_DOCUMENTS, COLDWINDOW_OFFSETS_MS); helpers in continuum-system-tests/lib/{ws-frames,theia-wire,theia-client,lsp-session,kotlin-script,proc-info,runner,lsp-capabilities}.mjs; round 2 (fix-round build): 61 passed / 1 failed (ST-11) / 3 skipped of 65 on an own dev backend, 63 / 1 / 1 of 65 inside the offline image; round 3 (fix-round-2 build, own dev backend on :3010): 63 passed / 0 failed / 3 skipped of 66 (coldwindow 10/10 incl. the typed-error check, the first edit at version 2 is applied), exhaustion 6/6, 65 / 0 / 1 of 66 inside the offline image; 171 unit tests"
+    },
+    {
+      "id": "kotlin-lsp-image-suite",
+      "type": "file",
+      "label": "Docker driver for the production workbench image (offline, uid 1000, cgroup memory)",
+      "path": "continuum-system-tests/suites/api/kotlin-lsp-image.mjs",
+      "doc": "workbench.md: 'Testing the bridge from outside'; helpers in lib/image-probe.mjs and lib/lsp-stdio.mjs; groups image download launcher seedscript seed asis (default; seedscript runs the source copy of the seed script on the host) + opt-in experiment default-idle exhaustion pod-limit (POD_LIMIT_GIB, containers with --memory); containers are named <NAME_PREFIX>-<runId>-<role> (kotlin-lsp-systest by default, -r2 / -r3 per round); BASELINE_IMAGE must be a release from before the feature (the local tag projectcontinuum/continuum-workbench:0.0.16 was overwritten by a Kotlin-bearing local build on 2026-11-28; pull the genuine release by digest and tag it under your own name; the driver SKIPs both baseline checks, NOT VERIFIED, when the baseline carries CONTINUUM_KOTLIN_LS_HOME); round 2: 42 passed / 1 failed (ST-11) / 1 skipped of 44, pod-limit 1 and 2 GiB 16 / 0; round 3: 49 passed / 0 failed / 1 skipped (server --version) of 50, asis inside the image 65 / 0 / 1 of 66 plus root 1/1, image 4,794,791,656 bytes built in 1 min 54 s"
+    },
+    {
+      "id": "lsp-capabilities-lib",
+      "type": "file",
+      "label": "system-tests lib: what an LSP initialize answer promises, plus one probe request per promise",
+      "path": "continuum-system-tests/lib/lsp-capabilities.mjs",
+      "doc": "k6-free helper with unit tests (test/lsp-capabilities.test.js); used by the bridge suite's check 'initialize promises only features the bridge serves': it sends every promised method on an owned document and requires an answer, never a -32602 refusal"
+    },
+    {
+      "id": "lsp-stdio-lib",
+      "type": "file",
+      "label": "system-tests lib: Content-Length-framed JSON-RPC over stdio (encoder, parser, small client)",
+      "path": "continuum-system-tests/lib/lsp-stdio.mjs",
+      "doc": "k6-free helper with unit tests (test/lsp-stdio.test.js); used by the image driver's launcher group to talk to /opt/continuum/kotlin-ls/bin/kotlin-language-server with no bridge in between (minimal environment, no network): initialize in ~0.8 s, completion of a String member 75 items"
+    },
+    {
+      "id": "kotlin-settings-seed",
+      "type": "file",
+      "label": "scripts/seed-kotlin-settings.js (seeds the fwcd.kotlin settings for the file editor)",
+      "path": "continuum-workbench/scripts/seed-kotlin-settings.js",
+      "doc": "workbench.md ('Testing the bridge from outside', Seeding): run by entrypoint.sh and yarn start; refuses (exit 1, writes nothing) on any read error but ENOENT, keeps the file mode, leaves kotlin.java.home alone without a runtime; writes ~/.continuum/settings.json + globalStorage/fwcd.kotlin/config.json; rewrites kotlin.languageServer.path (the launcher) and kotlin.java.home on every start, other keys only when absent; JSONC tolerant, atomic, one settings.json.continuum-backup; an unparsable file -> exit 1, untouched, the container still starts. Finding ST-12 (NIT, FIXED in fix round 2, VERIFIED in round 3): a leading UTF-8 BOM is stripped before parsing; BOM + plain JSON -> exit 0, mark gone, user keys kept, marker written, no backup; BOM + commented file -> merged, backup keeps the original bytes incl. the BOM; a BOM-only file counts as empty; BOM + broken JSON -> exit 1, untouched, no marker (host seedscript group 4/4, in-image direct/commented/entrypoint BOM checks)"
+    },
+    {
+      "id": "diagnostics-nudge-version-collision",
+      "type": "concept",
+      "label": "Finding ST-11 (MINOR, FIXED in fix round 2, VERIFIED in round 3 on the dev bundle and the image): DiagnosticsNudge sent version+1 and never recorded it, so the first client edit after a (re)start was ignored by the server. Fix: every didOpen/didChange/replay/nudge the bridge sends carries a per-document strictly increasing OpenDocument.serverVersion (nextServerVersion); the client keeps its own numbering",
+      "doc": "DiagnosticsNudge.ts:33 re-sends each open document 500 ms after ready as a full-text didChange with document.version + 1; OpenDocuments keeps v, fwcd ignores versions not above its stored one, and the client's next edit (version 2 after the open at 1) is exactly that version. Effect: stale markers or one failed completion/hover (-32603; server log 'Reached end of file before reaching char 29') until the next keystroke heals it (full-text sync). Applies to every document open when the nudge fires: cold start, idle restart, crash/OOM restart (the replay sends the recorded version, then +1). Regression check: ONLY=coldwindow, 'the first edit after the bridge re-sent the open documents is applied by the server' (failed in round 2 on dev and image; passes in round 3: 9/9 original, 10/10 with the typed-error check; the first edit at version 2 is applied at all 7 offsets +0..1500 ms; the image's server log no longer has 'Reached end of file', round 2: 4 per run). Fix options: one monotonic bridge-to-server version per document rewritten on every forwarded didOpen/didChange, or nudge with didClose + didOpen. Real-browser effect NOT VERIFIED. workbench.md: 'Testing the bridge from outside'"
+    },
+    {
+      "id": "workbench-image-baseline-tag-pitfall",
+      "type": "concept",
+      "label": "Pitfall (found in round 3): the local Docker tag projectcontinuum/continuum-workbench:0.0.16 is not a reliable pre-feature baseline - on 2026-11-28 01:06 IST it was overwritten by a local build of the working tree (5.47 GB, Kotlin layers, ENV CONTINUUM_KOTLIN_LS_HOME), and the system tests' own stack uses that tag for its workbench service",
+      "doc": "The genuine release is projectcontinuum/continuum-workbench@sha256:2c44cb8ab9d1388683fc060e8013e207c77e4ee7e28b5456273a481bc5570716 (amd64, 4,378,995,222 bytes, no seed script, entrypoint without the seeding): docker pull by digest leaves the local tag alone; tag it kotlin-lsp-systest-<round>-baseline:0.0.16. continuum-system-tests/docker/docker-compose.yml line 391 pins the same tag for the continuum-workbench service, so make up would start the local build (inferred from compose's default pull policy, not run). The image driver (BASELINE_IMAGE) now SKIPs its two baseline comparisons, NOT VERIFIED, when the baseline carries CONTINUUM_KOTLIN_LS_HOME (hasKotlinSupport in lib/image-probe.mjs). workbench.md: 'Testing the bridge from outside', Image runs"
+    },
+    {
+      "id": "kotlin-lsp-ui-suite",
+      "type": "file",
+      "label": "Kotlin language-server browser suite (Puppeteer against the real workbench, no platform stack)",
+      "path": "continuum-system-tests/suites/ui/kotlin-lsp.mjs",
+      "doc": "workbench.md: 'Kotlin in the browser'; scenarios first-open completion valid diagnostics hover sighelp unclosed header fallback kill-early channel twodialogs save rest-unchanged kt-file journey, opt-in hung; counts Kotlin JVMs by parentage; env WORKBENCH_URL BACKEND_PID BACKEND_LOG THEIA_CONFIG_DIR SHOT_DIR SHOT_PREFIX ONLY READY_TIMEOUT_MS; fault injection (channel-open frames held back in the test browser, SIGTERM/SIGSTOP of Kotlin JVMs under the backend only); no workaround mode since round 2; command in dev-environment.md"
+    },
+    {
+      "id": "fwcd-kotlin-extension",
+      "type": "external",
+      "label": "VS Code extension fwcd.kotlin 0.2.36 (Kotlin files in the Theia file editor)",
+      "path": "continuum-workbench/continuum-workbench/plugins/fwcd.kotlin",
+      "doc": "workbench.md: 'Kotlin files (file editor)' and 'Kotlin in the browser'; runs in the Theia plugin host with its own server JVM (cwd = workspace, ~0.9 GB) started through .kotlin-ls/bin/kotlin-language-server (MAVEN_REPOSITORY set); since the dialog got its own Monaco id it activates only for real .kt/.kts files (2 activations in 54 min of round-2 runs vs 24 in round 1); .kt works (markers, hover, completion), .kts partial (false whole-file MISSING_SCRIPT_STANDARD_TEMPLATE error, BE-D open); first-run download prompt unless seeded (scripts/seed-kotlin-settings.js)"
+    },
+    {
+      "id": "kotlin-model-wakes-extension",
+      "type": "concept",
+      "label": "Pitfall (fixed in build #3): any Monaco model with language id `kotlin` starts the fwcd.kotlin extension and its own ~0.85 GB JVM",
+      "doc": "verified CONTNM-180 browser round 1: opening only a Script dialog (or a Rest/Create Table/Claude dialog, through the `|| 'kotlin'` fallback) started the extension server with no .kt open; with the bridge server that was ~1.75 GB. FIXED and re-verified in round 2: the dialog editor uses its own Monaco id `continuum-kotlin-script` (common/DialogEditorLanguage.ts), a Script dialog alone = exactly 1 bridge JVM, Rest/Create Table/Claude = 0 JVMs; the extension wakes only for .kt/.kts files. Guard in tests: count JVMs by parentage and never call monaco.editor.tokenize(..., 'kotlin') while measuring. workbench.md: 'Kotlin in the browser'"
+    },
+    {
+      "id": "theia-bundle-dirname",
+      "type": "concept",
+      "label": "Pitfall (fixed): in the webpack backend bundle __dirname is continuum-workbench/continuum-workbench/lib/backend",
+      "doc": "relative paths written for the source layout resolved one folder too high (KotlinServerLaunchSpec dev default ../../../../.kotlin-ls), so dev needed CONTINUUM_KOTLIN_LS_HOME. FIXED in the fix round (dev dir found by walking up to scripts/download-kotlin-ls.sh); browser round 2 verified a backend started without the env var. workbench.md: 'Kotlin in the browser'"
+    },
+    {
+      "id": "kotlin-server-no-syntax-errors",
+      "type": "concept",
+      "label": "Pitfall: the stock fwcd kotlin-language-server 1.3.13 emits no syntax (parser) diagnostics",
+      "doc": "proven in CONTNM-180 browser round 2 with direct JSON-RPC probes of the real server (wrapped script and plain .kt text): missing closing brace or parenthesis, `val = 3`, junk at top level, unclosed string, extra `)` -> zero diagnostics; only semantic ones (type mismatch, unused variable, unreachable code). So the review item 'unclosed brace is flagged on the last script line' (showTrailingErrorsOnLastUserLine in the Kotlin registration) can never trigger; the node reports the compile error when it runs. Options: accept/document or add an own bracket-balance check. workbench.md: 'Kotlin in the browser'"
+    },
+    {
+      "id": "script-wrapper-local-declarations",
+      "type": "concept",
+      "label": "Pitfall: the script wrapper is a function body, so valid script-level object/enum class/interface/typealias get false error markers",
+      "doc": "CONTNM-180 browser round 2: with `fun continuumScript<key>(row, flow): Any? = run { <script> }` the editor shows 'Named object cannot be local', 'Modifier enum is not applicable to local class', 'interface so it cannot be local', 'Nested and local type aliases are not supported' (also const val / import after code in a direct probe); class and fun are fine; header placement (leading block comment, KDoc, @file:) is handled. Whether the node's JSR-223 engine accepts these declarations is NOT VERIFIED. Options: filter those messages (diagnosticFilter), document the limit, or change the wrapper. workbench.md: 'Kotlin in the browser'"
+    },
+    {
+      "id": "continuum-docs-kotlin-language-intelligence",
+      "type": "documentation",
+      "label": "Continuum docs for Kotlin Script language intelligence and workbench resources",
+      "doc": "Next-version docs added in continuum-docs: feature-nodes/base-analytics.md, deployment/workbench-resources.md, and architecture/language-intelligence.md. npm run build passed."
+    }
   ],
   "edges": [
-    {"from": "workbench", "to": "api-server", "type": "calls", "via": "generated typescript-axios clients"},
-    {"from": "api-server", "to": "temporal", "type": "starts-workflows"},
-    {"from": "temporal", "to": "orchestration", "type": "runs"},
-    {"from": "orchestration", "to": "feature-base", "type": "dispatches-node-activities-to"},
-    {"from": "feature-base", "to": "worker-starter", "type": "depends-on"},
-    {"from": "orchestration", "to": "commons", "type": "depends-on"},
-    {"from": "orchestration", "to": "loop-condition", "type": "evaluates-conditions-with"},
-    {"from": "status-reporter", "to": "workflow-update", "type": "builds"},
-    {"from": "status-reporter", "to": "kafka", "type": "publishes-to"},
-    {"from": "kafka", "to": "message-bridge", "type": "consumed-by"},
-    {"from": "message-bridge", "to": "mqtt", "type": "forwards-to"},
-    {"from": "message-bridge", "to": "postgres", "type": "persists-to"},
-    {"from": "mqtt", "to": "viewer-widget", "type": "live-updates"},
-    {"from": "viewer-widget", "to": "workflow-viewer", "type": "renders"},
-    {"from": "workbench-core-types", "to": "viewer-widget", "type": "types-for"},
-    {"from": "dag-executor", "to": "flow-variables", "type": "injects-iteration"},
-    {"from": "loop-runner", "to": "loop-history-guard", "type": "checks-before-iteration"},
-    {"from": "loop-history-guard", "to": "history-limits", "type": "enforces"},
-    {"from": "workflow-update", "to": "history-limits", "type": "exposes-count-and-limit"},
-    {"from": "loop-runner", "to": "loop-node", "type": "implements"},
-    {"from": "loop-node-ui", "to": "loop-node", "type": "renders"},
-    {"from": "kotlin-script-node", "to": "flow-variables", "type": "reads-and-sets"},
-    {"from": "api-server", "to": "openapi-spec", "type": "described-by"},
-    {"from": "editor-extension", "to": "openapi-spec", "type": "generated-from"},
-    {"from": "docs", "to": "flow-variables", "type": "documents"},
-    {"from": "factory", "to": "conventions", "type": "follows"},
-    {"from": "platform-core", "to": "orchestration", "type": "contains"},
-    {"from": "platform-core", "to": "commons", "type": "contains"},
-    {"from": "platform-core", "to": "message-bridge", "type": "contains"},
-    {"from": "platform-core", "to": "api-server", "type": "contains"},
-    {"from": "workbench", "to": "editor-extension", "type": "contains"},
-    {"from": "workbench", "to": "workbench-core-types", "type": "contains"}
+    {
+      "from": "workbench",
+      "to": "api-server",
+      "type": "calls",
+      "via": "generated typescript-axios clients"
+    },
+    {
+      "from": "api-server",
+      "to": "temporal",
+      "type": "starts-workflows"
+    },
+    {
+      "from": "temporal",
+      "to": "orchestration",
+      "type": "runs"
+    },
+    {
+      "from": "orchestration",
+      "to": "feature-base",
+      "type": "dispatches-node-activities-to"
+    },
+    {
+      "from": "feature-base",
+      "to": "worker-starter",
+      "type": "depends-on"
+    },
+    {
+      "from": "orchestration",
+      "to": "commons",
+      "type": "depends-on"
+    },
+    {
+      "from": "orchestration",
+      "to": "loop-condition",
+      "type": "evaluates-conditions-with"
+    },
+    {
+      "from": "status-reporter",
+      "to": "workflow-update",
+      "type": "builds"
+    },
+    {
+      "from": "status-reporter",
+      "to": "kafka",
+      "type": "publishes-to"
+    },
+    {
+      "from": "kafka",
+      "to": "message-bridge",
+      "type": "consumed-by"
+    },
+    {
+      "from": "message-bridge",
+      "to": "mqtt",
+      "type": "forwards-to"
+    },
+    {
+      "from": "message-bridge",
+      "to": "postgres",
+      "type": "persists-to"
+    },
+    {
+      "from": "mqtt",
+      "to": "viewer-widget",
+      "type": "live-updates"
+    },
+    {
+      "from": "viewer-widget",
+      "to": "workflow-viewer",
+      "type": "renders"
+    },
+    {
+      "from": "workbench-core-types",
+      "to": "viewer-widget",
+      "type": "types-for"
+    },
+    {
+      "from": "dag-executor",
+      "to": "flow-variables",
+      "type": "injects-iteration"
+    },
+    {
+      "from": "loop-runner",
+      "to": "loop-history-guard",
+      "type": "checks-before-iteration"
+    },
+    {
+      "from": "loop-history-guard",
+      "to": "history-limits",
+      "type": "enforces"
+    },
+    {
+      "from": "workflow-update",
+      "to": "history-limits",
+      "type": "exposes-count-and-limit"
+    },
+    {
+      "from": "loop-runner",
+      "to": "loop-node",
+      "type": "implements"
+    },
+    {
+      "from": "loop-node-ui",
+      "to": "loop-node",
+      "type": "renders"
+    },
+    {
+      "from": "kotlin-script-node",
+      "to": "flow-variables",
+      "type": "reads-and-sets"
+    },
+    {
+      "from": "api-server",
+      "to": "openapi-spec",
+      "type": "described-by"
+    },
+    {
+      "from": "editor-extension",
+      "to": "openapi-spec",
+      "type": "generated-from"
+    },
+    {
+      "from": "docs",
+      "to": "flow-variables",
+      "type": "documents"
+    },
+    {
+      "from": "factory",
+      "to": "conventions",
+      "type": "follows"
+    },
+    {
+      "from": "platform-core",
+      "to": "orchestration",
+      "type": "contains"
+    },
+    {
+      "from": "platform-core",
+      "to": "commons",
+      "type": "contains"
+    },
+    {
+      "from": "platform-core",
+      "to": "message-bridge",
+      "type": "contains"
+    },
+    {
+      "from": "platform-core",
+      "to": "api-server",
+      "type": "contains"
+    },
+    {
+      "from": "workbench",
+      "to": "editor-extension",
+      "type": "contains"
+    },
+    {
+      "from": "workbench",
+      "to": "workbench-core-types",
+      "type": "contains"
+    },
+    {
+      "from": "editor-extension",
+      "to": "node-dialog-code-editor",
+      "type": "contains",
+      "via": "src/browser/components"
+    },
+    {
+      "from": "node-dialog-code-editor",
+      "to": "kotlin-script-node",
+      "type": "edits-script-of",
+      "via": "JSONForms format=code"
+    },
+    {
+      "from": "workbench",
+      "to": "language-server-extension",
+      "type": "contains"
+    },
+    {
+      "from": "language-server-extension",
+      "to": "node-dialog-code-editor",
+      "type": "will-serve",
+      "via": "thin vscode-jsonrpc adapter, injected monaco"
+    },
+    {
+      "from": "language-server-extension",
+      "to": "lsp-browser-client",
+      "type": "contains"
+    },
+    {
+      "from": "language-server-extension",
+      "to": "lsp-backend-bridge",
+      "type": "contains"
+    },
+    {
+      "from": "lsp-browser-client",
+      "to": "lsp-backend-bridge",
+      "type": "talks-to",
+      "via": "Theia channel /services/language-server/<id>, one JSON-RPC string per message"
+    },
+    {
+      "from": "lsp-backend-bridge",
+      "to": "kotlin-ls-packaging",
+      "type": "spawns",
+      "via": "KotlinServerLaunchSpec: CONTINUUM_KOTLIN_LS_HOME + CONTINUUM_JAVA_HOME (image default /opt/continuum/kotlin-ls; dev: .kotlin-ls found by walking up, works without the env var since the fix round, see workbench.md)"
+    },
+    {
+      "from": "language-server-extension",
+      "to": "lsp-kotlin-language",
+      "type": "contains"
+    },
+    {
+      "from": "lsp-kotlin-language",
+      "to": "lsp-backend-bridge",
+      "type": "registers-with"
+    },
+    {
+      "from": "use-language-intelligence",
+      "to": "language-server-extension",
+      "type": "calls",
+      "via": "LanguageIntelligenceStore set by LanguageIntelligenceContribution"
+    },
+    {
+      "from": "system-tests",
+      "to": "kotlin-lsp-bridge-suite",
+      "type": "contains"
+    },
+    {
+      "from": "system-tests",
+      "to": "kotlin-lsp-image-suite",
+      "type": "contains"
+    },
+    {
+      "from": "kotlin-lsp-bridge-suite",
+      "to": "lsp-backend-bridge",
+      "type": "tests",
+      "via": "channel /services/language-server/kotlin-script on the Theia /services Socket.IO socket (connection-token cookie, no Origin)"
+    },
+    {
+      "from": "kotlin-lsp-image-suite",
+      "to": "kotlin-lsp-bridge-suite",
+      "type": "runs",
+      "via": "docker cp + docker exec as the backend's uid inside a --network none container of the production image"
+    },
+    {
+      "from": "kotlin-lsp-image-suite",
+      "to": "kotlin-ls-packaging",
+      "type": "tests",
+      "via": "image checks: JRE, pin/marker, checksum guard, seeded settings, size, memory"
+    },
+    {
+      "from": "system-tests",
+      "to": "kotlin-lsp-ui-suite",
+      "type": "contains"
+    },
+    {
+      "from": "kotlin-lsp-ui-suite",
+      "to": "node-dialog-code-editor",
+      "type": "tests",
+      "via": "Script dialog in a real browser: footer + status chip, completion (visible, unclipped popup), hover, signature help, diagnostics at the right line/column, fallback, Save, own Monaco language id, Rest/Create Table/Claude editors keep their declared language and start no Kotlin server"
+    },
+    {
+      "from": "kotlin-lsp-ui-suite",
+      "to": "lsp-backend-bridge",
+      "type": "tests",
+      "via": "kill the server JVM -> starting -> auto-restart -> unavailable after 4 crashes; kill while starting; held-back channel open (unavailable after the 10 s watchdog, late wire adopted); frozen server (SIGSTOP) replaced after ~33 s; JVM count per step; idle stop after 10 minutes"
+    },
+    {
+      "from": "kotlin-lsp-ui-suite",
+      "to": "fwcd-kotlin-extension",
+      "type": "tests",
+      "via": ".kt/.kts files in the file editor: markers, hover, completion; first-run prompt; second JVM"
+    },
+    {
+      "from": "workbench",
+      "to": "fwcd-kotlin-extension",
+      "type": "runs",
+      "via": "pinned plugin in plugins/ (package.json pluginChecksums + scripts/install-pinned-plugins.js), settings seeded by scripts/seed-kotlin-settings.js"
+    },
+    {
+      "from": "node-dialog-code-editor",
+      "to": "kotlin-model-wakes-extension",
+      "type": "has-pitfall",
+      "via": "model language id `kotlin` (also by the `|| 'kotlin'` fallback); fixed by the dialog's own id continuum-kotlin-script"
+    },
+    {
+      "from": "kotlin-model-wakes-extension",
+      "to": "fwcd-kotlin-extension",
+      "type": "activates",
+      "via": "onLanguage:kotlin"
+    },
+    {
+      "from": "lsp-kotlin-language",
+      "to": "theia-bundle-dirname",
+      "type": "has-pitfall",
+      "via": "KotlinServerLaunchSpec dev default path (fixed)"
+    },
+    {
+      "from": "lsp-kotlin-language",
+      "to": "kotlin-server-no-syntax-errors",
+      "type": "has-pitfall",
+      "via": "showTrailingErrorsOnLastUserLine has nothing to clamp"
+    },
+    {
+      "from": "lsp-kotlin-language",
+      "to": "script-wrapper-local-declarations",
+      "type": "has-pitfall",
+      "via": "KotlinScriptPrelude wraps the script in a function body"
+    },
+    {
+      "from": "kotlin-lsp-ui-suite",
+      "to": "kotlin-server-no-syntax-errors",
+      "type": "found",
+      "via": "unclosed scenario (FR-3) + direct JSON-RPC probe"
+    },
+    {
+      "from": "kotlin-lsp-ui-suite",
+      "to": "script-wrapper-local-declarations",
+      "type": "found",
+      "via": "header scenario (FR-4): object, enum class, interface, typealias"
+    },
+    {
+      "from": "kotlin-lsp-bridge-suite",
+      "to": "lsp-capabilities-lib",
+      "type": "uses"
+    },
+    {
+      "from": "kotlin-lsp-image-suite",
+      "to": "lsp-stdio-lib",
+      "type": "uses",
+      "via": "launcher group: LSP over stdio against the start launcher"
+    },
+    {
+      "from": "kotlin-lsp-image-suite",
+      "to": "kotlin-settings-seed",
+      "type": "tests",
+      "via": "seed group: contract, JSONC, backup, repeatable, unparsable (exit 1, untouched), BOM (ST-12, three normal checks since round 3); host-run seedscript group (4 checks)"
+    },
+    {
+      "from": "lsp-backend-bridge",
+      "to": "diagnostics-nudge-version-collision",
+      "type": "has-pitfall",
+      "via": "DiagnosticsNudge version+1 not recorded in OpenDocuments"
+    },
+    {
+      "from": "kotlin-lsp-bridge-suite",
+      "to": "diagnostics-nudge-version-collision",
+      "type": "found",
+      "via": "coldwindow group: the first-edit check (passes since fix round 2, verified in round 3)"
+    },
+    {
+      "from": "kotlin-lsp-image-suite",
+      "to": "workbench-image-baseline-tag-pitfall",
+      "type": "has-pitfall",
+      "via": "BASELINE_IMAGE must be a pre-feature release; hasKotlinSupport guard"
+    }
   ]
 }

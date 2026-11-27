@@ -1,0 +1,190 @@
+{
+  "server": "fwcd-1.3.13-kt",
+  "mode": "kt",
+  "command": "/tmp/spike/fwcd/server/bin/kotlin-language-server",
+  "serverArgs": [],
+  "workspace": "/tmp/spike/ws-final-kt.zTTl",
+  "scenarios": {
+    "type-error (expect error at 0:13..0:16 for `val x: Int = \"a\"`)": {
+      "firstMs": 593,
+      "settledMs": 593,
+      "publishes": 1,
+      "diagnostics": [
+        {
+          "sev": 1,
+          "code": "TYPE_MISMATCH",
+          "msg": "Type mismatch: inferred type is String but Int was expected",
+          "line": 0,
+          "col": 13,
+          "endLine": 0,
+          "endCol": 16
+        },
+        {
+          "sev": 2,
+          "code": "UNUSED_VARIABLE",
+          "msg": "Variable 'x' is never used",
+          "line": 0,
+          "col": 4,
+          "endLine": 0,
+          "endCol": 5
+        }
+      ],
+      "via": "publish",
+      "wallMs": 5004
+    },
+    "valid-script (no diagnostics expected)": {
+      "firstMs": 119,
+      "settledMs": 119,
+      "publishes": 1,
+      "diagnostics": [],
+      "via": "publish",
+      "wallMs": 4503
+    },
+    "type-error-on-line-3": {
+      "firstMs": 56,
+      "settledMs": 56,
+      "publishes": 1,
+      "diagnostics": [
+        {
+          "sev": 1,
+          "code": "TYPE_MISMATCH",
+          "msg": "Type mismatch: inferred type is String but Int was expected",
+          "line": 2,
+          "col": 13,
+          "endLine": 2,
+          "endCol": 16
+        },
+        {
+          "sev": 2,
+          "code": "UNUSED_VARIABLE",
+          "msg": "Variable 'x' is never used",
+          "line": 2,
+          "col": 4,
+          "endLine": 2,
+          "endCol": 5
+        }
+      ],
+      "via": "publish",
+      "wallMs": 4506
+    },
+    "fix-clears-error (didChange from error to valid)": {
+      "newPublishes": 1,
+      "msToLastPublish": 282,
+      "remainingErrors": 0,
+      "wallMs": 8010
+    },
+    "script with import line (hoisted above the hidden header)": {
+      "firstMs": 93,
+      "settledMs": 93,
+      "publishes": 1,
+      "diagnostics": [
+        {
+          "sev": 1,
+          "code": "TYPE_MISMATCH",
+          "msg": "Type mismatch: inferred type is String but Int was expected",
+          "line": 1,
+          "col": 13,
+          "endLine": 1,
+          "endCol": 16
+        },
+        {
+          "sev": 2,
+          "code": "UNUSED_VARIABLE",
+          "msg": "Variable 'x' is never used",
+          "line": 1,
+          "col": 4,
+          "endLine": 1,
+          "endCol": 5
+        }
+      ],
+      "via": "publish",
+      "completionAfterImportCount": 73,
+      "wallMs": 4576
+    },
+    "completion after `flow.`": {
+      "latencyMs": 111,
+      "count": 18,
+      "hasGetSetAll": true,
+      "sample": [
+        "get(name: String)",
+        "set(name: String, value: Any?)",
+        "all()",
+        "equals(other: Any?)",
+        "hashCode()",
+        "toString()",
+        "also",
+        "apply",
+        "let",
+        "run",
+        "takeIf",
+        "takeUnless"
+      ],
+      "wallMs": 2113
+    },
+    "completion of stdlib on `row.`": {
+      "count": 75,
+      "hasMapMembers": true,
+      "sample": [
+        "entries",
+        "keys",
+        "size",
+        "values",
+        "containsKey(key: String)",
+        "containsValue(value: Any)",
+        "equals(other: Any?)",
+        "forEach(BiConsumer<in String, in Any>)",
+        "get(key: String)",
+        "getOrDefault(key: String, defaultValue: Any)"
+      ],
+      "wallMs": 1138
+    },
+    "hover on `flow.set`": {
+      "latencyMs": 17,
+      "text": "```kotlin\nfun set(name: String, value: Any?): Unit\n```\n---\nSets or updates flow variable [name] for downstream nodes.",
+      "mentionsKdoc": true,
+      "wallMs": 2020
+    },
+    "signature help on `flow.set(`": {
+      "signatures": [
+        "fun set(name: String, value: Any?): Unit"
+      ],
+      "wallMs": 2012
+    },
+    "stdlib type resolution (`listOf(1).map { it * 2 }.sum()`)": {
+      "firstMs": 49,
+      "settledMs": 49,
+      "publishes": 1,
+      "diagnostics": [],
+      "via": "publish",
+      "wallMs": 4505
+    }
+  },
+  "initializeMs": 699,
+  "serverInfo": {
+    "name": "Kotlin Language Server",
+    "version": "1.3.13"
+  },
+  "capabilities": [
+    "textDocumentSync",
+    "hoverProvider",
+    "completionProvider",
+    "signatureHelpProvider",
+    "definitionProvider",
+    "referencesProvider",
+    "documentHighlightProvider",
+    "documentSymbolProvider",
+    "workspaceSymbolProvider",
+    "codeActionProvider",
+    "documentFormattingProvider",
+    "documentRangeFormattingProvider",
+    "renameProvider",
+    "executeCommandProvider",
+    "workspace",
+    "semanticTokensProvider",
+    "inlayHintProvider"
+  ],
+  "coldStartToFirstDiagnosticsMs": 1292,
+  "rssAfterFirstDocMb": 771,
+  "rssFinalMb": 865,
+  "totalWallMs": 39112
+}

@@ -1,0 +1,97 @@
+{
+  "server": "fwcd-1.3.13-kts",
+  "mode": "kts",
+  "command": "/tmp/spike/fwcd/server/bin/kotlin-language-server",
+  "serverArgs": [],
+  "workspace": "/tmp/spike/ws-final-kts.XfOf",
+  "scenarios": {
+    "type-error (expect error at 0:13..0:16 for `val x: Int = \"a\"`)": {
+      "firstMs": null,
+      "diagnostics": [],
+      "via": "none (timeout)",
+      "wallMs": 12015
+    },
+    "valid-script (no diagnostics expected)": {
+      "firstMs": null,
+      "diagnostics": [],
+      "via": "none (timeout)",
+      "wallMs": 15016
+    },
+    "type-error-on-line-3": {
+      "firstMs": null,
+      "diagnostics": [],
+      "via": "none (timeout)",
+      "wallMs": 12017
+    },
+    "fix-clears-error (didChange from error to valid)": {
+      "newPublishes": 0,
+      "msToLastPublish": null,
+      "remainingErrors": 0,
+      "wallMs": 18016
+    },
+    "script with import line (hoisted above the hidden header)": {
+      "firstMs": null,
+      "diagnostics": [],
+      "via": "none (timeout)",
+      "completionAfterImportCount": 0,
+      "wallMs": 15026
+    },
+    "completion after `flow.`": {
+      "latencyMs": 20037,
+      "count": 0,
+      "hasGetSetAll": false,
+      "sample": [],
+      "wallMs": 22040
+    },
+    "completion of stdlib on `row.`": {
+      "count": 0,
+      "hasMapMembers": false,
+      "sample": [],
+      "wallMs": 6009
+    },
+    "hover on `flow.set`": {
+      "latencyMs": 2,
+      "text": null,
+      "mentionsKdoc": false,
+      "wallMs": 12014
+    },
+    "signature help on `flow.set(`": {
+      "signatures": [],
+      "wallMs": 12018
+    },
+    "stdlib type resolution (`listOf(1).map { it * 2 }.sum()`)": {
+      "firstMs": null,
+      "diagnostics": [],
+      "via": "none (timeout)",
+      "wallMs": 12014
+    }
+  },
+  "initializeMs": 679,
+  "serverInfo": {
+    "name": "Kotlin Language Server",
+    "version": "1.3.13"
+  },
+  "capabilities": [
+    "textDocumentSync",
+    "hoverProvider",
+    "completionProvider",
+    "signatureHelpProvider",
+    "definitionProvider",
+    "referencesProvider",
+    "documentHighlightProvider",
+    "documentSymbolProvider",
+    "workspaceSymbolProvider",
+    "codeActionProvider",
+    "documentFormattingProvider",
+    "documentRangeFormattingProvider",
+    "renameProvider",
+    "executeCommandProvider",
+    "workspace",
+    "semanticTokensProvider",
+    "inlayHintProvider"
+  ],
+  "coldStartToFirstDiagnosticsMs": null,
+  "rssAfterFirstDocMb": 717,
+  "rssFinalMb": 718,
+  "totalWallMs": 136891
+}

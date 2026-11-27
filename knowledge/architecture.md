@@ -9,6 +9,14 @@ and required flags: `../factory/repos.txt`. Stack table and house rules: `../fac
 |------|------|
 | `continuum-platform-core` | Kotlin 2.2 / Spring Boot 4 / Temporal / Kafka / Gradle (JDK 21). All backend services. |
 | `continuum-workbench` | Theia IDE + React 18 + React Flow + JSONForms (Yarn 1.22, Node 24 via nvm). |
+
+## Kotlin language intelligence and workbench resources
+
+The Kotlin Script dialog is a standalone Monaco model, so it uses the workbench's generic language-server bridge rather
+than a VS Code extension. The Kotlin registration is `kotlin-script`; the bridge owns strictly increasing document
+versions because fwcd ignores repeated versions. Real workspace `.kt`/`.kts` files use the separately bundled
+`fwcd.kotlin` extension. New workbenches default to 2Gi memory request and 4Gi limit; the cluster-manager validates
+that each request does not exceed its matching limit, including values merged from a partial update.
 | `continuum-feature-base` (+ `-ai`, `-cheminformatics`, `-knime`, `-template`) | Worker images with `@ContinuumNode` node models. Base nodes live in `features/continuum-feature-analytics`. |
 | `continuum-system-tests` | k6 API suites + headless-browser UI suites; `docker/docker-compose.yml` is the local full stack (postgres, temporal, mosquitto, nginx, services). |
 | `continuum-docs` | Docusaurus. `docs/` = unreleased "next"; `versioned_docs/` = released. |

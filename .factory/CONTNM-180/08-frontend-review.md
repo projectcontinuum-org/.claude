@@ -1,542 +1,311 @@
-# Frontend Expert Review — Loops (CONTNM-180), Round 3
-
-Feature: Loop nodes in the workflow editor and viewer (CONTNM-180).
-Scope: Targeted fix round 3 against specific findings from round 2.
-
----
-
-## AC Coverage Table
-
-| AC | Description | Previous Finding | Verdict |
-|----|-------------|-----------------|---------|
-| AC-34 | Builder mode stays active during editing | FR-9 [BLOCKER] builder onChange forced setMode('cel') -- infinite unmount/remount | **PASS** (FR-9 resolved) |
-| AC-35 | Two-mode dialog (CEL text / visual builder) | FR-B1 [MAJOR] builder always started empty | **PASS** (FR-B1 resolved) |
-| AC-40 | react-querybuilder import restricted to single file | N/A (not re-reviewed in this round) | PASS (unchanged) |
-
----
-
-## Round 3 Findings
-
-### FR-9 [BLOCKER] -- RESOLVED
-- **Title:** Builder onChange no longer forces mode to CEL.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/QueryConditionBuilder.tsx:101-106` (via QueryConditionRenderer, not LoopConditionBuilder).
-- **Problem (previous round):** The builder's `onChange` callback unconditionally called `setMode('cel')`, causing every keystroke to switch back to CEL mode. This made the builder unusable — it would unmount immediately after mounting.
-- **Fix verified:** Lines 101-106 of QueryConditionRenderer.tsx now read:
-
-```tsx
-onChange={(celText) => {
-    handleChange(props.path, celText);
-}}
-```
-
-The forced `setMode('cel')` is gone. The auto-switch effect (lines 46-50) handles invalidation independently: it only switches to CEL when data no longer fits builder shape — not on every change. Mode stays at 'builder' during active editing of valid single-rule conditions.
-
-- **Failure scenario (would happen without fix):** User types "vars["page"]" in the builder, sees it instantly switch back to CEL mode, loses the built expression.
-- **Status:** RESOLVED.
-
----
-
-### FR-B1 [MAJOR] -- RESOLVED
-- **Title:** LoopConditionBuilder pre-populates from value prop using parseCondition().
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:60-73`.
-- **Problem (previous round):** The builder always started with an empty/default query, ignoring the existing condition text passed via props. User opened a dialog on a loop that already had `vars["page"] == 10` and saw a blank builder — had to re-enter everything.
-- **Fix verified:** Lines 60-73 use lazy useState initializer:
-
-```tsx
-const [query, setQuery] = React.useState<RqbQuery>(() => {
-    const parsed = parseCondition(value);
-    if (parsed) {
-        return {
-            combinator: 'and',
-            rules: [{ field: parsed.variable, operator: parsed.operator, value: parsed.literalValue }],
-        };
-    }
-    return {
-        combinator: 'and',
-        rules: [{ field: '', operator: '==', value: true }],
-    };
-});
-```
-
-When `value` is a valid single-rule CEL expression, `parseCondition()` extracts variable, operator and literalValue, populating the builder. If it doesn't fit (complex CEL), falls back to default — matching the initial-mode decision logic. Additionally, line 85-99 adds an effect that syncs builder state when the value prop changes externally.
-
-**Safety checks verified:**
-1. `parseCondition(value)` — since value is always a non-empty string at call sites (guarded by QueryConditionRenderer line 25), this will not throw TypeError.
-2. The lazy initializer only runs on mount; the external sync effect only runs when value changes (line 99: `[value]`). No infinite loop because setQuery receives a new object only when parsed content differs from current state.
-
-- **Failure scenario (would happen without fix):** User edits a loop's condition to CEL text, toggles to builder — sees an empty form instead of their expression in visual format.
-- **Status:** RESOLVED.
-
----
-
-### FR-5 [MAJOR] -- RESOLVED
-- **Title:** Both console.log calls removed from NodeDialog.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/NodeDialog.tsx`.
-- **Problem (previous round):** Two `console.log` debug statements still present in NodeDialog, leaking to production logs.
-- **Fix verified:** Full file grep confirms zero `console.` calls anywhere in the file (verified via `grep -n 'console\.'`). The file has 682 lines; no console output exists.
-
-- **Failure scenario (would happen without fix):** User opens DevTools Console during loop dialog use — sees debug clutter mixed with legitimate errors.
-- **Status:** RESOLVED.
-
----
-
-### FR-B2 [MAJOR] -- RESOLVED
-- **Title:** Early type guard at top of QueryConditionRenderer prevents unsafe casts.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/QueryConditionRenderer.tsx:25`.
-- **Problem (previous round):** Five unsafe `data as string` casts scattered throughout the component — if JSONForms passed non-string data, downstream code would crash or produce garbage.
-- **Fix verified:** Lines 24-26:
-
-```tsx
-// Type guard — JSONForms data can be any type.
-if (typeof data !== 'string' || !data) return null;
-```
-
-This is an early return that eliminates all downstream casts. No other `as string` or unsafe cast remains in the file. Downstream code (lines 38, 47, 62-66, 77-79, 90-91) all operate on `data` which TypeScript now knows is a non-empty string.
-
-- **Failure scenario (would happen without fix):** JSONForms passes null or an object for an optional field; downstream `.replace()`, `.trim()` or template literal operations crash with TypeError.
-- **Status:** RESOLVED.
-
----
-
-### FR-6 [MAJOR] -- RESOLVED
-- **Title:** Specific RqbRule/RqbQuery interfaces replace any types.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:15-24`.
-- **Problem (previous round):** Multiple unexplained `any` types in component props and state — lost type safety, harder to refactor.
-- **Fix verified:** Lines 15-24 define explicit interfaces:
-
-```tsx
-interface RqbRule {
-    field: string;
-    operator: string;
-    value: unknown;
-}
-
-interface RqbQuery {
-    combinator: string;
-    rules: RqbRule[];
-}
-```
-
-These replace the previous `any`-typed state and props. Remaining `any` occurrences in LoopConditionBuilder.tsx (lines 55, 104, 107):
-
-| Line | Context | Justification |
-|------|---------|---------------|
-| 55 | `let QBuilder: any = null` | Dynamic import of react-querybuilder v8.x has complex generics; runtime verified working. Standard pattern for dynamic imports. |
-| 104-108 | `React.createElement(QBuilder, { ... })` | React's createElement signature requires `any` for arbitrary component props. RQB passes correct shape at runtime. |
-| 107 | `operators: BUILDER_OPERATORS as any` | RQB v8 expects a specific operator schema; our simplified array is structurally compatible but not assignable by TS. |
-
-In QueryConditionRenderer.tsx, the only `any` (line 119) is the JSONForms `uischema: any` parameter — standard pattern for tester functions per `@jsonforms/core` types and existing convention in CodeEditorRenderer/CredentialRenderer.
-
-**No unexplained `any`. All casts have documented justification.**
-
-- **Failure scenario (would happen without fix):** Refactor to a different RQB version or operator schema silently breaks because callers receive `any` — no compile-time contract to catch the mismatch.
-- **Status:** RESOLVED.
-
----
-
-### FR-4 [MAJOR] -- RESOLVED (re-check, from round 2)
-- **Title:** CelConditionEditor removed dual-state intermediate displayValue.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/CelConditionEditor.tsx`.
-- **Previous problem (round 2):** Component maintained two independent states (`celText` + intermediate `displayValue`), causing flicker on toggle, broken undo/redo, and keyboard navigation issues with the Switch.
-- **Fix verified in round 2 (re-checked):** CelConditionEditor now takes a single `value` prop directly, renders the Monaco editor without an intermediate display layer. Switch value is always a direct boolean from `mode === 'cel'`. No visual flicker on toggle; undo/redo works because the editor's internal state matches the parent's single source of truth.
-
-- **Status:** RESOLVED (confirmed again in this round).
-
----
-
-## New Findings Introduced by Fix Round 3
-
-### FR-N1 [MINOR] — Factory ID leak in code comment
-- **Title:** House rule 13 violation — factory criterion ID "AC-40" appears in a source code comment.
-- **Location:** `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:3`
-- **Problem:** The JSDoc header line reads:
-
-```
- * Only UI file that imports react-querybuilder — satisfies AC-40 constraint.
-```
-
-House rule 13 (CONVENTIONS.md, line 134) explicitly prohibits task/criterion/decision IDs (`BE-n`, `FE-n`, `AC-n`, etc.) in code comments, docs, or commit messages. These IDs mean nothing to a future reader and create maintenance debt if the plan changes but the comment does not.
-
-- **Failure scenario:** Future developer searching for "react-querybuilder" finds this comment, tries to look up AC-40 in the requirements doc — which may have been revised or removed by the time they read it.
-- **Recommendation:** Rewrite to describe the actual constraint: `// Only file that imports react-querybuilder; keeps the library tree-shakeable when builders are not used.`
-
-### FR-N2 [NIT] — Line 3 of LoopConditionBuilder.tsx also contains "AC-40" which is a plan reference in docs context
-- **Title:** Same as FR-N1 but noted for completeness — this is the same finding; no additional issue.
-
----
-
-## House-Rule Checks (Round 3 Scope)
-
-| Rule | Status | Notes |
-|------|--------|-------|
-| House rule 12 (SOLID: modularity, size) | PASS | LoopConditionBuilder: 109 lines; QueryConditionRenderer: 123 lines — under the ~300-line signal. Logic extracted to pure modules (`LoopConditionQuery.ts`, `LoopConditionDialogState.ts`). No monolithic component growth. |
-| House rule 13 (no factory IDs in product) | **MINOR VIOLATION** | FR-N1: "AC-40" on line 3 of LoopConditionBuilder.tsx. Rest of all four files are clean. NodeDialog.tsx: no IDs found. QueryConditionRenderer.tsx: no IDs in code (only the comment-level JSDoc). CelConditionEditor.tsx: no IDs found. |
-| TypeScript clean | PASS | Build status confirms `tsc --noEmit` clean, 129/129 tests pass. |
-| Tests: pure logic has node:test specs | PASS | State file confirms 36 new Loop specs across LoopCarriedVariables, LoopPresentation, LoopConditionDialogState (lines 42-43 of 04-frontend-dev.md). |
-
----
-
-## Updated AC Coverage (post-round 3)
-
-| AC | Status | Notes |
-|----|--------|-------|
-| AC-34: Builder mode stays during editing | **PASS** | FR-9 resolved. Builder onChange no longer forces `setMode('cel')`. Auto-switch only when data no longer fits builder shape (lines 46-50). |
-| AC-35: Two-mode dialog with toggle | **PASS** | FR-B1 resolved (pre-populate), FR-B2 resolved (type guard), FR-6 resolved (typed interfaces). All toggle rules intact via `canToggleToBuilder` / `replaceAction`. |
-
----
-
-## Verdict
-
-### CHANGES REQUESTED
-
-**One MINOR finding to address before approval:**
-
-- **FR-N1 [MINOR]:** Remove the factory criterion ID "AC-40" from LoopConditionBuilder.tsx line 3. Replace with a description of what AC-40 actually requires (library tree-shakeability / single-import restriction).
-
-All five round-2 findings (FR-9, FR-B1, FR-5, FR-B2, FR-6) are **RESOLVED** with no regressions introduced.
-
----
-
-## Final Message to Orchestrator
-
-**Verdict:** CHANGES REQUESTED
-
-**BLOCKER/MAJOR findings:** None remaining. All five fix-round targets resolved:
-- `FR-9 [BLOCK->RESOLVED]` LoopConditionBuilder.tsx:101 — onChange no longer forces CEL mode; mode stays in builder during active editing
-- `FR-B1 [MAJOR->RESOLVED]` LoopConditionBuilder.tsx:60 — pre-populates from value prop via parseCondition()
-- `FR-5 [MAJOR->RESOLVED]` NodeDialog.tsx — zero console.log calls verified
-- `FR-B2 [MAJOR->RESOLVED]` QueryConditionRenderer.tsx:25 — early type guard `if (typeof data !== 'string' || !data) return null;` eliminates all unsafe casts
-- `FR-6 [MAJOR->RESOLVED]` LoopConditionBuilder.tsx:15-24 — RqbRule/RqbQuery interfaces replace any types
-
-**MINOR/NIT findings:** 1 (FR-N1 — "AC-40" factory ID in comment at LoopConditionBuilder.tsx:3, house rule 13 violation)
-
-**Plain-language summary:** All five specific fixes from round 2 have been verified as correctly implemented. The builder stays in visual mode during editing (was BLOCKER), pre-populates from existing conditions, has no debug logs, properly type-guards incoming data, and uses typed interfaces instead of any. One minor issue remains: a comment on line 3 of LoopConditionBuilder.tsx still references the plan ID "AC-40" — per house rule 13, this should be rewritten as a plain description of what that criterion requires (keeping react-querybuilder to a single import file). The rest is clean and ready for approval once that one-line comment is updated.
-
-## Round 4
-
-### Previous findings
-
-| Finding | Status | Current verification |
-|---|---|---|
-| FR-9 [BLOCKER] | RESOLVED | `QueryConditionRenderer.tsx` builder `onChange` updates the condition without forcing CEL mode. |
-| FR-B1 [MAJOR] | RESOLVED | `LoopConditionBuilder.tsx` initializes from `parseCondition(value)` and syncs changes to `value`. |
-| FR-5 [MAJOR] | RESOLVED | The two debug calls previously found in `NodeDialog.tsx` are absent. |
-| FR-B2 [MAJOR] | RESOLVED | `QueryConditionRenderer.tsx:25` type-guards data before use. |
-| FR-6 [MAJOR] | RESOLVED | The RQB query and rule interfaces remain present; documented RQB/JSONForms `any` usages remain. |
-| FR-4 [MAJOR] | RESOLVED | The editor still uses the single `value` prop, without the prior intermediate display state. |
-| FR-N1 [MINOR] | RESOLVED | The `AC-40` reference is gone from `LoopConditionBuilder.tsx`. |
-| FR-N2 [NIT] | RESOLVED | This was a duplicate of FR-N1; the same source comment is now clean. |
-
-### New findings
-
-#### FR-10 [MAJOR] — Loop membership, collapse, and collapsed-cycle behavior are not wired into the editor
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/widgets/workflow-editor/WorkflowEditorWidget.tsx:329-334`; `continuum-workbench/workflow-editor-extension/src/browser/components/workflow-editor/WorkflowEditor.tsx:112-120`; `continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx:85-91`
-- **Problem:** Palette drops always create `type: "BaseNode"` and do not set `parentNode`; editor connection validation only uses the ordinary graph-cycle check and does not call `LoopTopology`. The LoopNode's collapse indicator is a non-interactive `Box`; it does not hide members or persist a changed `collapsed` value. `LoopTopology` has no production imports. Thus the planned drop-in/drop-out membership, loop-aware connection refusal, and collapse/expand behavior are not implemented in the active UI.
-- **Failure scenario:** A user cannot create a loop by dropping the Loop palette item, cannot make a node a loop member by dropping/dragging it into the box, and can connect edges across a loop boundary that should be refused. Clicking the displayed collapse indicator does nothing.
-- **Suggested fix:** Add the palette-to-Loop node creation and drag membership/position conversion in the workflow editor widget, call the loop topology guard from `isValidConnection`, implement an accessible collapse/expand control that updates `collapsed` and the rendered member visibility, and cover the required interactions with unit/browser scenarios.
-
-#### FR-11 [MAJOR] — Valid CEL conditions do not initially open in builder mode
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/QueryConditionRenderer.tsx:30-43`
-- **Problem:** Mode state always initializes to `'cel'`. The effect intended to choose the initial mode returns immediately when `data` is unchanged from the value captured by `prevDataRef` on mount. Therefore it never selects builder mode for the initial condition.
-- **Failure scenario:** Opening a loop whose condition is `vars["hasMore"] == true` or another builder-compatible condition displays the CEL editor rather than the builder; reopening a built condition also fails the planned “opens in builder” behavior.
-- **Suggested fix:** Initialize mode synchronously from the initial data (using the pure mode decision helper), and retain the effect only for subsequent external data changes.
-
-#### FR-12 [MAJOR] — Async builder import does not trigger a render
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:53-56`
-- **Problem:** The dynamic-import callback assigns the module component to a module-scoped variable, but does not update React state or otherwise schedule a render. If the import resolves after this component's render, the component remains on the `if (!QBuilder) return null` path until some unrelated render occurs.
-- **Failure scenario:** On a slow chunk load, a user switches to Builder while the import is pending, sees a blank editor, and it remains blank after the chunk resolves.
-- **Suggested fix:** Load the component with a stateful effect or `React.lazy`/`Suspense`, with a visible loading state and error fallback.
-
-#### FR-13 [MAJOR] — Loop-carried variables are not used in the outputs view
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node-output-viewer/NodeOutputViewer.tsx:119-125`; `continuum-workbench/workflow-editor-extension/src/common/LoopCarriedVariables.ts:32-36`
-- **Problem:** The new `inheritedVariablesForEntryMember` helper is only referenced by its specs. The live Node Outputs dialog still calls the pre-loop `inheritedFlowVariables`, which does not include the loop node's carried `$variable` output.
-- **Failure scenario:** After a loop completes, opening Flow Variables for an entry member shows inherited values recomputed without the carried set; variables supplied by the prior iteration are omitted or incorrect.
-- **Suggested fix:** Integrate the loop-aware helper into the live output-view computation, passing the enclosing loop IDs derived from the run snapshot, and test that path rather than only testing the isolated helper.
-
-#### FR-14 [MAJOR] — Loop topology incorrectly treats unrelated loops as nested
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/common/LoopTopology.ts:94-98`
-- **Problem:** `getDescendants` recursively unions descendants for every other Loop node without checking whether that loop is a child/member of the current loop. Consequently, every loop scope includes descendants of unrelated loops.
-- **Failure scenario:** In a workflow with two unrelated loops, `descendants`/`enclosingLoops` report cross-loop membership and `wouldCreateCycle` can reject a connection because of a loop boundary that does not contain either endpoint.
-- **Suggested fix:** Recurse only into loop nodes that are direct members of the current loop, and add tests for unrelated sibling loops as well as nested scopes.
-
-#### FR-15 [MAJOR] — Condition validation is not connected to the dialog
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/QueryConditionRenderer.tsx:75-77`; `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/useConditionValidation.ts:19-24`
-- **Problem:** `QueryConditionRenderer` always passes an empty array as `validationIssues` and does not call `useConditionValidation`; the hook has no consumer. Even if connected, it validates a global `window.__loopValidationWorkflow` or an empty graph rather than the workflow with the user's current loop edit.
-- **Failure scenario:** A user types a rejected condition and receives no validation result from the dialog; the planned delayed issues and offline “Not checked” state never appear.
-- **Suggested fix:** Pass the current workflow into the dialog/renderer, debounce validation of that workflow with the edited condition, check the `HttpReply` status before reading its body, filter issues to this loop's `condition` property, and render the issues/status.
-
-### Other checks and verification limits
-
-- `react-querybuilder` imports remain limited to `LoopConditionBuilder.tsx`; the previous FR-N1 comment is fixed. A separate factory ID remains in product code: `LoopPresentation.ts:52` contains `FE-9` in a comment (house rule 13; MINOR).
-- `package.json` adds `react-querybuilder` and `yarn.lock` is changed in the worktree. Release notes say `^8.25.0`, while the package declares `^8.28.0`; this mismatch is MINOR.
-- No factory IDs were found in the changed prompt/release-note files; the generated client/model edits correspond to the backend contract edits visible in this worktree.
-- `git diff --check` passes. Node and Yarn are unavailable, so TypeScript and node:test suites were **NOT VERIFIED**. The workbench/browser service is not running, so browser scenarios were **NOT VERIFIED**; no browser test pass is claimed.
-
-### Verdict
-
-**CHANGES REQUESTED** — FR-10 through FR-15 are MAJOR findings. The prior FR-N1 is resolved, but the active implementation still lacks core loop editing behaviors and has condition-builder, validation, and run-display regressions.
-
-**Counts:** 6 MAJOR, 2 MINOR, 0 NIT. No BLOCKER found.
-
-## Round 5
-
-### Round 4 findings
-
-| Finding | Status | Current verification |
-|---|---|---|
-| FR-10 [MAJOR] | RESOLVED | Palette drops now select `Loop`, membership/relative positions are updated on drop and drag, collapsed display nodes/edges are derived, and editor connection checks call the loop topology guard. |
-| FR-11 [MAJOR] | RESOLVED | `QueryConditionRenderer` initializes mode synchronously with `initialMode(condition, fitsBuilder)`. |
-| FR-12 [MAJOR] | RESOLVED | `LoopConditionBuilder` loads RQB into component state and renders loading/error feedback. |
-| FR-13 [MAJOR] | RESOLVED | `NodeOutputViewer` now calls `flowVariableDisplayForNode`, which derives enclosing loops and overlays carried values. |
-| FR-14 [MAJOR] | RESOLVED | `descendants` follows direct parent-child loop links; sibling-scope tests were added. |
-| FR-15 [MAJOR] | RESOLVED | The renderer now uses the validation hook with the active workflow and loop id; `reply` status is checked before response data is read. |
-
-### New findings
-
-#### FR-16 [MAJOR] — Builder fit detection can admit conditions it cannot parse, then overwrite them
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/common/LoopConditionQuery.ts:44-45,62-64,155-156`; `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:60-72,87-94`
-- **Problem:** `fitsBuilder` accepts a bare qualified selector such as `vars.hasMore`, but `parseCondition` only parses the quoted-bracket form. The renderer therefore selects Builder, the builder falls back to an empty field, and its mount effect emits `vars[""] == true` back to the form.
-- **Failure scenario:** Opening a loop containing a builder-compatible `vars.hasMore == true` expression replaces the user's condition with an empty-variable condition without an edit. Additionally, the shared cases file marks an escaped-quote variable as `fits: true`, but the current `isValidVarRef` regex rejects its escaped quote; the adapter spec does not exercise the shared cases file.
-- **Suggested fix:** Make the fit predicate exactly match the parser's supported grammar, parse/escape the full supported variable-name grammar, and never emit CEL until the initial query was successfully parsed. Add a table-driven spec over every shared case, including escaped quotes and backslashes.
-
-#### FR-17 [MAJOR] — Deleting a Loop has no planned delete-or-keep choice
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/workflow-editor/WorkflowEditor.tsx:157-160,341`
-- **Problem:** The `onNodesDelete` handler only records history; no deletion flow asks whether to delete the Loop's members or move them out with absolute positions, as required by the plan's Loop deletion behavior.
-- **Failure scenario:** A user deletes a Loop and cannot choose to keep its member nodes; depending on React Flow's parent deletion behavior, members are removed with it or can be left with an invalid parent reference.
-- **Suggested fix:** Intercept Loop deletion before applying it, present the delete-members/keep-members choice, and for “keep” convert child positions to absolute coordinates and clear their `parentNode`.
-
-#### FR-18 [MAJOR] — Loop boxes are fixed-size, not resizable
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx:23-24,45-48`
-- **Problem:** The component hard-codes width `520` and height `320` (or `48` when collapsed) and renders no resize affordance. Palette creation also sets those dimensions as fixed values. The plan requires a resizable Loop box.
-- **Failure scenario:** A workflow with more members than fit in the default box cannot enlarge the Loop to contain them; the container remains fixed-size.
-- **Suggested fix:** Add React Flow resize controls for Loop nodes, preserve the resulting dimensions in node/style state, and cover resize persistence and membership bounds.
-
-#### FR-19 [MAJOR] — Loop canvas behavior substantially expands the already-large editor component
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/workflow-editor/WorkflowEditor.tsx:55-155` (component is 402 lines)
-- **Problem:** The existing canvas component now owns substantial loop topology orchestration: collapse state, derived display graph, drag snapshot/reparenting, cycle rejection and rollback. This is not a thin delegation; it violates the modularity rule for feature logic added to an existing large component.
-- **Failure scenario:** Future changes to drag behavior, collapse, or connection rules require edits to the same large component and can regress the canvas's unrelated editing, dialog, and run controls.
-- **Suggested fix:** Extract the loop canvas state transitions/drag handling into a focused hook or controller, keeping the component responsible for composing the canvas and rendering.
-
-#### FR-20 [MAJOR] — Loop status visuals duplicate the central status presentation
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/common/LoopPresentation.ts:14-35`; `continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx:18-19,49`
-- **Problem:** Loop status labels and colors are independently hard-coded in `LoopPresentation`, while the LoopNode mixes them with `nodeStatusClass` from the central status presentation. This breaks the platform rule that status visuals have one source in `ExecutionStatusPresentation.ts`.
-- **Failure scenario:** When a status color/label changes centrally, Loop nodes retain their separate mapping and show inconsistent status semantics.
-- **Suggested fix:** Extend and consume the shared status presentation for Loop visuals; keep Loop-specific condition/progress formatting separate from status mapping.
-
-#### FR-21 [BLOCKER] — Invalid class member declaration at module scope breaks TypeScript parsing
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/widgets/workflow-editor/WorkflowEditorWidget.tsx:42-44`
-- **Problem:** `protected handleTopologyError = ...` is declared between the options interface and the class declaration, not inside `WorkflowEditorWidget`. A `protected` class member declaration is invalid at module scope.
-- **Failure scenario:** TypeScript compilation fails parsing this file, preventing the workbench extension from building.
-- **Suggested fix:** Move `handleTopologyError` inside `WorkflowEditorWidget` as a class property (or define a normal module-level function without `protected` and without class `this`).
-
-### Other checks and verification limits
-
-- Two Round 4 MINOR findings remain: the `FE-9` factory ID in `LoopPresentation.ts:52`, and release notes list `react-querybuilder` `^8.25.0` while the package declares `^8.28.0`.
-- LoopNode also uses a hard-coded translucent white background and fixed muted hex text colors (`LoopNode.tsx:49-52,68-70`), which is a MINOR dark-theme inconsistency.
-- `README.md` and the unreleased release notes were updated; `yarn.lock` is present with the package change. `git diff --check` passes.
-- Node/Yarn are unavailable, so TypeScript and node:test are **NOT VERIFIED**. The browser service is not running, so browser scenarios are **NOT VERIFIED**. No runtime or browser pass is claimed.
-
-### Verdict
-
-**CHANGES REQUESTED** — FR-21 is a BLOCKER; FR-16 through FR-20 are MAJOR. The Round 4 findings FR-10 through FR-15 are resolved, but the current tree is not ready to ship.
-
-**Counts:** 1 BLOCKER, 5 MAJOR, 3 MINOR, 0 NIT.
-
-## Round 6
-
-Scope: re-review after frontend fix round 5. Verified FR-16 through FR-21 against the current worktree and the final plan, including the rewritten FE-10b and AC-34 requirements. The workbench was not built and no browser/runtime checks were run.
-
-### Round 5 findings
-
-| Finding | Status | Current verification |
-|---|---|---|
-| FR-16 [MAJOR] | RESOLVED | `fitsBuilder` now delegates to the parser; escaped quoted CEL strings and a single property selector are covered by the shared builder cases, and the builder suppresses emission until parsing succeeds. |
-| FR-17 [MAJOR] | RESOLVED | Loop deletion now offers Delete members / Keep members / Cancel; keep-members clears parent references after converting positions, and the editor delete path calls the choice flow. |
-| FR-18 [MAJOR] | RESOLVED | `LoopNode` renders `NodeResizer`; resize is persisted, and minimum size is derived from direct members. |
-| FR-19 [MAJOR] | RESOLVED | Canvas topology, resize and deletion behavior are extracted to `useLoopCanvas` and pure operations; the editor component is reduced from the previously reported 402 lines to 321. |
-| FR-20 [MAJOR] | RESOLVED | `LoopNode` now consumes the shared node-status presentation/badge; loop presentation no longer maintains a duplicate status label/color mapping. |
-| FR-21 [BLOCKER] | RESOLVED | `handleTopologyError` is now a class member inside `WorkflowEditorWidget`; the invalid module-scope `protected` declaration is gone. |
-
-### New findings
-
-#### FR-22 [MAJOR] — Visual condition builder does not serialize nested groups or `not`
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx:15-25,88-95`; `continuum-workbench/workflow-editor-extension/src/common/LoopConditionQuery.ts:32-38,87-102`
-- **Problem:** The final plan requires nested `and`/`or` groups and group `not` to be stored as CEL and restored as the same builder tree. The builder query type only models flat rules, its effect serializes only when there is exactly one rule, and `toCel` serializes a single comparison rather than a query tree.
-- **Failure scenario:** A user adds a nested group or group negation in the builder. The change is not emitted as CEL (a single group can serialize to an empty string; multiple top-level rules are ignored), so the prior condition remains in the form. Saving/reopening cannot restore the constructed tree, failing AC-34.
-- **Suggested fix:** Represent RQB rules and nested groups recursively; serialize combinators and group `not` to CEL and parse that supported tree back into the builder. Add pure round-trip specs for nested `and`/`or`, group `not`, dotted variables and quoted strings, including edits that change an existing condition.
-
-#### FR-23 [MAJOR] — Carried values override parent values on every node inside a loop
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/common/LoopCarriedVariables.ts:41-47,74-102`
-- **Problem:** `inheritedVariablesForNode` applies `inheritedVariablesForEntryMember` to every node with an enclosing loop, although that helper's contract is specifically for entry members. It overlays carried values after the ordinary parent merge, making them win even for internal nodes whose parent produced a newer value.
-- **Failure scenario:** A loop carries `page = 2`; an entry member updates `page` to `3`, then an internal child receives that value from its parent. The Flow Variables view for that child shows `page = 2`, because the carried set is overlaid directly on the child after the parent value is recomputed.
-- **Suggested fix:** Apply the carried set at actual loop entry members and propagate the resulting availability through the member graph using the same precedence and merge semantics as the platform. Add a case where an internal parent overwrites a carried variable and assert the child displays the parent value.
-
-#### FR-24 [MINOR] — Factory criterion ID remains in a product comment
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/common/LoopPresentation.ts:25`
-- **Problem:** The comment contains `FE-9`, contrary to house rule 13.
-- **Failure scenario:** A future maintainer encounters a task ID in product code that no longer explains the behavior or has a stable meaning.
-- **Suggested fix:** Replace the ID with a plain description of the status-message behavior.
-- **Status:** STILL OPEN (previously noted as a minor house-rule issue).
-
-#### FR-25 [MINOR] — Release note dependency version is stale
-
-- **Location:** `continuum-workbench/release_notes/RELEASE_NOTES_v0.0.16.md:134`; `continuum-workbench/workflow-editor-extension/package.json:41`
-- **Problem:** The release note says `react-querybuilder` `^8.25.0`, but the package declares `^8.28.0`.
-- **Failure scenario:** A reader following the upgrade note gets an inaccurate dependency version.
-- **Suggested fix:** Make the release note match the declared dependency (and keep the lockfile aligned).
-- **Status:** STILL OPEN (previously noted as a minor docs issue).
-
-#### FR-26 [MINOR] — Loop node uses hard-coded colors that do not follow the MUI theme
-
-- **Location:** `continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx:77,82,95,127,148,162`
-- **Problem:** The node background, handle, muted text and warning colors are fixed hex/RGBA values rather than theme palette values.
-- **Failure scenario:** In dark mode or after a theme palette change, Loop node text/handles/background can have poor contrast or differ from the rest of the canvas.
-- **Suggested fix:** Use the existing MUI theme palette and status presentation tokens for these visuals.
-- **Status:** STILL OPEN (previously noted as a minor theme issue).
-
-### Verification limits and verdict
-
-- `git diff --check` passes.
-- Node/Yarn are unavailable, so TypeScript and node:test suites are **NOT VERIFIED**. The browser service is not running, so browser scenarios are **NOT VERIFIED**. No runtime or browser pass is claimed.
-- **CHANGES REQUESTED** — FR-22 and FR-23 are MAJOR findings. FR-16 through FR-21 are resolved; the earlier blocker is fixed.
-- **Counts:** 0 BLOCKER, 2 MAJOR, 3 MINOR, 0 NIT.
-
-## Round 7
-
-Scope: re-review after frontend fix round 6, focusing on FR-22 and FR-23 against the current worktree and the approved plan. No build, install, unit-test command, or browser check was run.
-
-### Round 6 findings
-
-| Finding | Status | Current verification |
-|---|---|---|
-| FR-22 [MAJOR] | RESOLVED | The query model is recursive; the CEL adapter parses and formats nested groups and group negation, and the builder emits the complete tree. The shared cases and specs cover nested `and`/`or`, group `not`, escaped/dotted variable names, quoted strings, and editing a nested rule. `LoopConditionBuilder` initializes from `fromCel(value)`, providing the source-level round-trip when reopened. |
-| FR-23 [MAJOR] | RESOLVED | Carried values are overlaid only when the target is an entry member of an enclosing loop. `inheritedFlowVariables` applies the overlay while resolving ancestors, so entry availability flows through own outputs and normal parent merges to internal members. A new spec verifies a child sees `page = 3` from its parent rather than the loop's older carried `page = 2`. |
-| FR-24 [MINOR] | STILL OPEN | `LoopPresentation.ts:25` still has the `FE-9` factory ID in a source comment. |
-| FR-25 [MINOR] | STILL OPEN | Release notes still say `react-querybuilder` `^8.25.0`; `package.json` still says `^8.28.0`. |
-| FR-26 [MINOR] | STILL OPEN | `LoopNode.tsx` still uses fixed RGBA/hex colors rather than theme palette values. |
-
-### Verification limits and verdict
-
-- Source review confirms the recursive builder adapter and entry-only carried-variable overlay, with pure specs covering both prior failure scenarios.
-- `git -C continuum-workbench diff --check` passes.
-- Node/Yarn are unavailable, so TypeScript and node:test suites are **NOT VERIFIED**. The browser service is not running, so browser scenarios are **NOT VERIFIED**. No runtime or browser pass is claimed; in particular, the AC-34 dialog reopen behavior is verified from source and unit-spec coverage, not by browser execution.
-- **APPROVED** — no BLOCKER or MAJOR findings remain. FR-22 and FR-23 are resolved.
-- **Counts:** 0 BLOCKER, 0 MAJOR, 3 MINOR, 0 NIT.
-
-## Round 8
-
-Scope: review the current `continuum-workbench` Round 14 changes against the approved plan, focusing on FE-5/FE-6/FE-7/FE-9 and AC-32/AC-33/AC-37. Source review only; no build, install, unit test, or browser run was performed.
-
-### Previous findings
-
-| Finding | Status | Current verification |
-|---|---|---|
-| FR-22 [MAJOR] | RESOLVED | Round 7 verified the recursive builder adapter and round-trip coverage. |
-| FR-23 [MAJOR] | RESOLVED | Round 7 verified carried variables are overlaid at loop entry members and covered by a spec. |
-| FR-24 [MINOR] | RESOLVED | No factory task ID remains in the `LoopPresentation.ts` source comment. |
-| FR-25 [MINOR] | RESOLVED | The release note and `workflow-editor-extension/package.json` both specify `react-querybuilder` `^8.28.0`; `yarn.lock` contains the corresponding 8.28.0 entry. |
-| FR-26 [MINOR] | RESOLVED | Loop fill and configured border now use theme palette values via MUI `alpha()`. |
+# Frontend review — CONTNM-180
+
+## Round 1
+
+Reviewer: Frontend Expert. Read-only review of the uncommitted change in `continuum-workbench` — FE-1 (generic browser
+LSP client in `language-server-extension/src/{browser,common,kotlin}`) and FE-2 (Script node dialog wiring in
+`workflow-editor-extension`). Out of scope by instruction: `language-server-extension/src/node/**` (reviewed separately),
+the `.kt`/`.kts` file-editor route (`KotlinFileRegistration.ts` is being removed), Docker/entrypoint/scripts/`fwcd.kotlin`
+packaging.
+
+**Verdict: APPROVED** — no BLOCKER, no MAJOR. 9 MINOR, 7 NIT. Nothing found can lose or alter the user's script, block
+Save, or change the other code editors; the findings are robustness gaps in failure paths (FR-1, FR-2), design limits of
+the Kotlin wrapper (FR-3 to FR-5), guard/typing/test gaps (FR-6, FR-7, FR-9) and one self-reported edge (FR-8). FR-1 to FR-4
+are cheap and worth doing in this round; none of them gates the next stage. Reasoning at the end.
+
+### What I ran (nothing built, `lib/` and `src-gen/` untouched)
+
+| Command (via `bash -ic`) | Result |
+|---|---|
+| `yarn workspace @continuum/language-server-extension test` | 179 tests, 0 failures (04-frontend-dev reports 135, then 166; the difference is specs added to the workspace since, e.g. `KotlinExtensionConfig`) |
+| `yarn workspace @continuum/workflow-editor-extension test` | 189 tests, 0 failures (includes the 3 `LanguageIntelligenceDecision` specs) |
+| `npx tsc --noEmit -p tsconfig.json` in both workspaces | exit 0 |
+| Scratch type-check of the adapter's structural `MonacoApi` against the real `@theia/monaco-editor-core` typings (temp dir, removed) | everything assignable except `registerDefinitionProvider` — see FR-7 |
+| Scratch `node -e` probes of the repo's pure modules (`.test-out`, no files written) | prelude placement and diagnostic mapping results quoted in FR-3 and FR-4 |
+| Read of Theia 1.74.1 internals: `service-connection-provider.js`, `ws-connection-source.js`, `common/message-rpc/channel.js`, `browser-only/messaging/*`, `application-package` (`computeModules`, `ExtensionPackageCollector`), `plugin-ext` `languages-main.js` | basis of FR-1, FR-2 and the fwcd note |
+
+### Claims in `04-frontend-dev.md` checked against the diff
+
+- Round 1 file list, `theiaExtensions.frontend` entry, deps `react ^18` / `@types/react ^18`: present; every dependency key already exists in `yarn.lock` and workspace links are not recorded in Yarn v1, so no lockfile regeneration is needed (root `package.json` workspace entry and `test` script, `continuum-workbench/package.json` dependency and `workflow-editor-extension/package.json` dependency are the only manifest changes).
+- "No `initialize` from the client; one channel message = one JSON-RPC string; document opened once per wire": matches `LspConnection`/`TransportMessageStreams`/`DocumentSynchronizer` and the contract in `03-backend-dev.md`.
+- "Providers answer only for their own model; requests skipped unless `ready`; failures answer nothing": `MonacoLspAdapter.ask` (`:102-118`) — identity check `model !== this.model`, `state !== 'ready'`, try/catch. TRUE. The plan said "selector filtered by URI"; the identity check is equivalent and stricter.
+- "Definition results kept only when they point into the edited document": `toLocations` (`LspMonacoConversion.ts:~186-197`). TRUE.
+- "Own reconnect loop with back-off": TRUE, but it only covers a wire that closes after it opened — see FR-1.
+- Round 2 "`CodeEditorRenderer` gets the raw declared `options.language`, so editors without a declared language are unaffected": TRUE (`CodeEditorRenderer.tsx:97` passes `options.language`, not the `|| 'kotlin'` fallback at `:31`). The uischema of the Script node already declares `options.language: "kotlin"` in HEAD (`continuum-feature-base/.../KotlinScriptNodeModel.kt:70`).
+- "Save path untouched": TRUE (`MonacoEditorWrapper.tsx:62` still `onChange?.(editor.getValue())`; the session only reads `model.getValue()`).
+- Test selectors `language-server-status` (`role="status"`, `data-state`) and `language-intelligence-footer`: present; no factory ID anywhere in code, specs, docs, `data-testid`s or release notes (`CONTNM-180` appears only as the Jira key in the release-notes heading, like the neighbouring entries).
+- Verification numbers: reproduced (see table). "`GenericityGuard` now also scans `src/browser`": TRUE, but see FR-6 for what it does not scan in the editor extension.
+- "Not run in a browser / against the real bridge / Theia build": correct and I could not do it either — see NOT VERIFIED.
+
+### Verified OK (focus areas)
+
+1. **Stored script equals typed text; the hidden prelude never reaches `onChange`/save.** The prelude exists only in `VirtualDocument` / `PositionMapper.virtualText`. The Monaco model is never written by the session; `onEditorChange` is observational. `LanguageIntelligenceService.spec.ts` asserts `model.getValue()` is still the user text after attach (`:82`) and after edits (`:100`).
+2. **Position mapping.** Hidden blocks are whole lines, so columns are preserved and UTF-16 offsets stay consistent; CRLF/CR are normalised to LF in the virtual text only; wholly hidden diagnostics are dropped and straddling ones clamped (by design; but see FR-3). Monaco→LSP `triggerKind + 1`, severity map, signature-help result shape `{ value, dispose }`, stale-version diagnostics dropped (`DiagnosticMarkerSink.published`) — all correct.
+3. **Full-text sync.** `DocumentSynchronizer` opens once per wire, sends `didChange` with the full virtual text and the current version, re-opens on wire return, sends `didClose` on dispose (`TransportMessageWriter.write` is synchronous, so `didClose` precedes the channel `Close`).
+4. **No provider/document/listener leaks.** `ModelLanguageSession` disposes synchronizer (`didClose`) → marker sink (clears markers) → adapter (4 providers) → content listener → `onWillDispose` listener, then releases the connection; idempotent. `editor.dispose()` disposes the model it owns, which fires `onWillDispose`, so the hook cleanup disposing again is a no-op (either cleanup order is safe). Two dialogs: one refcounted connection per registration, distinct document keys (`doc-<n>-<rand>`) so URIs and wrapper names differ; providers return `undefined` for foreign models; spec "two models independent, providers back to baseline, connection closed with last model" passes. No `StrictMode` in the workbench, so there is no mount→unmount→mount double attach.
+5. **Save never blocked.** Nothing in the save path awaits or depends on the server; `attach` failures are caught in the hook (`useLanguageIntelligence.ts:~24-27`, editor stays plain); every request failure answers "nothing".
+6. **Other code editors unaffected.** The hook needs an *explicit* `options.language` AND a registration (`languageForIntelligence`): Rest (freemarker2), CreateTable (json), Claude (markdown), `JsonViewerDialog` and `CelConditionEditor` get no connection, chip, markers or providers; `onEditorChange` is optional and unused there. Hook effect deps `[editor, client, declaredLanguage]` are complete; cleanup disposes and resets the session; `setEditor` is a stable setter so the wrapper's `[monaco]`-only creation effect has no stale-closure problem for it (the `onChange` capture there is pre-existing).
+7. **Theia/Inversify wiring.** `LanguageIntelligenceContribution` (`@inject(LanguageIntelligence) @optional()`, `onStart` fills the zustand store) bound as `FrontendApplicationContribution`; `MonacoInstanceProvider` bound to the store's Monaco, which is `@theia/monaco-editor-core` (`ContinuumThemeService.registerAllThemes:29`); `LanguageServerFrontendModule` builds the `LanguageIntelligence` singleton, `KotlinFrontendModule` binds the registration; both `theiaExtensions` entries have frontend and backend modules and the lib files exist.
+8. **Accessibility of the chip.** `role="status"`, `data-testid`, `data-state`, dot `aria-hidden`, state in text (not colour-only), footer text colour `text.secondary`. (Hard-coded dot colours: FR-14.)
+9. **Genericity.** No Kotlin-specific string outside `src/kotlin` / `src/node/kotlin` and the data-only language id; grep of `workflow-editor-extension/src` finds only pre-existing Kotlin references (`MonacoLanguageRegistration.ts` Monarch grammar, `CodeEditorRenderer.tsx:31` fallback).
+10. **Sizes / SOLID.** Largest new source files: `LspMonacoConversion.ts` 197, `PositionMapper.ts` 176, `LspConnection.ts` 172 lines; no function above ~40 lines; `CodeEditorRenderer` grew by 4 lines and `NodeDialog.tsx` is untouched; the feature is new units (hook, footer, store, contribution, pure decision module) rather than branches in existing components.
+11. **House rules.** Release notes in `RELEASE_NOTES_v0.0.16.md` (the version being prepared); workspace README + AGENTS.md row and CI sentence updated; root `test` script includes the new workspace; `workflow-editor-extension/tsconfig.test.json` includes only `src/common`, so CI does not need the language-server `lib`; `KotlinScriptPrelude.spec` skips when the feature repo is absent. `vscode-jsonrpc@8.2.0` has one copy in `node_modules`; its `browser` entry (`browser.js` → `lib/browser/main`) contains no Node-only globals (bundling itself: NOT VERIFIED).
 
 ### Findings
 
-#### FR-27 [MAJOR] — AC-37 browser coverage does not check member last-iteration status
+Severity order. Findings marked UNCONFIRMED need the real Theia channel / language server to prove.
 
-- **Location:** `continuum-system-tests/suites/ui/loops-dialog.mjs:346`
-- **Verified source finding:** The AC-37 run-view assertions check the Loop's Warning/completion text and that the box contains a member (`:346-351`), but never assert that a member displays its last-iteration status. `WorkflowViewer` passes snapshot nodes through to `BaseNode` (`continuum-workbench/workflow-editor-extension/src/browser/components/workflow-viewer/WorkflowViewer.tsx:104-108`), so the presentation path exists, but this required behavior has no assertion in the added viewer scenario.
-- **Failure scenario:** A run could show the correct Loop status and iteration count while member nodes show stale or incorrect statuses; the existing AC-37 browser checks would still pass.
-- **Suggested fix:** In the multi-iteration run scenario, assert the rendered status of at least one member against the expected final-iteration snapshot status (and ensure the scenario distinguishes it from an earlier iteration).
+#### MINOR
 
-#### FR-28 [MINOR] — Factory IDs appear in system-test source
+**FR-1 [MINOR, UNCONFIRMED] (FE-1) — A channel open that fails or never completes is neither retried nor reported**
+- Where: `language-server-extension/src/browser/TheiaTransportSource.ts:20-22`, `ReconnectingTransportSource.ts:46-70`, `LspConnection.ts:20,41,142`.
+- Problem: a retry is scheduled only from the `onClose` of a transport that was opened (`ReconnectingTransportSource.ts:59-66`). The first attempt and every retry go through `provider.listen(path, handler, false)`, which in Theia 1.74 is `openChannel(...).then(...)` with no `catch` (`@theia/core/lib/browser/messaging/service-connection-provider.js:94-105`; `openChannel` is private, so the opener cannot observe failure). `openChannel` awaits `channelReady`, then `ChannelMultiplexer.open(path)`, which (a) throws synchronously if the id — which is the path — is already open or pending (`common/message-rpc/channel.js:221-224`) and (b) rejects when the main channel closes before the AckOpen (`channel.js:128-141`). Either way: unhandled rejection, `accept` never runs, no `onClose` is registered, no retry. `LspConnection` starts at `starting` (`:41`) and sets `unavailable` only from `lost()` (`:142`), i.e. after a wire existed — the comment at `:20` ("`unavailable` while there is no wire") is not true before the first wire.
+- Failure scenarios: (1) a dialog is closed while its Open is still pending (the connection is disposed but Theia's pending id stays until the AckOpen) and another Script editor attaches in that window → same path → "Another channel with the id … is already open" → the new editor shows "Kotlin language server starting…" until the dialog is reopened. (2) The backend restarts and the main channel closes between the Open and the AckOpen of a retry → the retry loop ends silently and the chip stays `unavailable` forever. Save is unaffected in both. Both windows are about one round trip, hence MINOR; UNCONFIRMED because it needs a real Theia channel.
+- Fix: through `listen` a failure can only be detected by time. Give `ReconnectingTransportSource` a per-attempt watchdog (e.g. 10 s without an accepted transport ⇒ report "no wire" so the connection moves to `unavailable`, and keep at most one in-flight `listen` per path; a late success is adopted or closed by an attempt-generation guard). Add specs for a wire that never opens and for "dispose while pending, then connect again" to `ReconnectingTransportSource.spec.ts` / `LspConnection.spec.ts`. Also fix the doc comment at `LspConnection.ts:20`.
 
-- **Location:** `continuum-system-tests/suites/ui/loops.mjs:32`
-- **Verified source finding:** The new test scripts use factory IDs such as `AC-32`, `AC-33`, `AC-37`, and `FE-7` in comments and `record()` labels. House rule 13 reserves these IDs for factory artifacts.
-- **Failure scenario:** The IDs become embedded in product-side test output and code, where they are meaningless to maintainers and violate the repository house rule.
-- **Suggested fix:** Replace those labels/comments with behavior descriptions without factory IDs.
+**FR-2 [MINOR] (FE-2) — The thin (browser-only) workbench shows "Kotlin language server starting…" forever under every Script editor**
+- Where: `continuum-workbench-thin/package.json` (`target: "browser-only"`, depends on `@continuum/workflow-editor-extension`), `workflow-editor-extension/package.json` (new dependency on `@continuum/language-server-extension`), `language-server-extension/package.json` (`theiaExtensions`: two entries with `frontend` + `backend`, no `frontendOnly`).
+- Problem: Theia collects extension packages transitively (`ExtensionPackageCollector`) and, for a browser-only target, loads each extension's `frontendOnly || frontend` module and no backend modules. So the thin app now loads the language-server frontend module and the Kotlin registration. In browser-only mode `RemoteConnectionProvider` is `FrontendOnlyServiceConnectionProvider`, whose `listen()` only logs at debug (`@theia/core/lib/browser-only/messaging/frontend-only-service-connection-provider.js:73-75`) and whose connection source never fires `onConnectionDidOpen`. Nothing crashes (the provider resolves), but no channel can ever open.
+- Failure scenario: open a Kotlin Script node in the thin workbench → permanent "Kotlin language server starting…" chip and no intelligence. Save unaffected. (Derived from Theia source; NOT VERIFIED with a thin build.)
+- Fix (needs a decision, see below): (a) add a `frontendOnly` entry (Theia's `theiaExtensions[].frontendOnly` key) pointing at an empty module for both extension entries — `LanguageIntelligence` is then unbound, `@optional()` yields no client, and no chip is shown; or (b) keep the chip and make it honest via the watchdog in FR-1 ("unavailable").
 
-### Verified source observations
+**FR-3 [MINOR] (FE-1/FE-2, mapping confirmed, server output UNCONFIRMED) — A missing closing `}` or `)` produces no marker**
+- Where: `language-server-extension/src/kotlin/KotlinScriptPrelude.ts:80-90` (`trailingLines: ['}']`), `src/common/PositionMapper.ts:62-80,126-160` (a diagnostic wholly inside hidden text is dropped).
+- Problem/evidence: for the user text `if (x) {` / `println(1)` the virtual document is header, `if (x) {`, `println(1)`, `}`; a probe on the repo's pure modules maps a diagnostic on the final hidden `}` line to `[]`. A parser reports an unbalanced brace at the end of the input, which in the virtual document is the hidden line (UNCONFIRMED for the real server), so the most common typing error would show nothing in the editor until the script runs. This follows the plan rule "wholly hidden diagnostics are dropped", but with a wrapper whose last line is hidden it hides the error users make most. What the real server reports and where is UNCONFIRMED.
+- Fix: a generic, opt-in registration option "clamp error diagnostics that fall inside trailing hidden text onto the last user line" (in `PositionMapper`/`DiagnosticFilter`), enabled by the Kotlin registration; specs in `PositionMapper.spec.ts` and `KotlinScriptPrelude.spec.ts`.
 
-- `BaseNode` sets `disableInteractive` on its subtitle tooltip (`workflow-editor-extension/src/browser/components/node/BaseNode.tsx:91`), addressing the source path implicated in click-then-drag interception.
-- `moveDraggedNode` clears cached absolute positions before deriving canvas coordinates from the relative-position parent chain, then writes either an absolute top-level position or a new parent-relative position. Its pure specs cover stale positions, nested loops, and drag-out. The browser test source separately drags a selected ordinary node and checks movement, and checks drag-out over an existing outside node.
-- Resize dimensions are applied from `onResize` and persisted to both node dimensions and style; history is committed from `onResizeEnd`. The browser script samples dimensions before mouse-up and checks persisted dimensions. Collapsed rendering derives display edges while the editor retains the saved edge state; the test source checks collapse state, edge equality, expand/restore, and reload.
-- The run viewer uses the shared `ExecutionStatusPresentation` through `LoopNode`, retains backend progress/final messages, applies the derived collapsed view, and reserves space for carried-variable summaries. The source also renders ordinary members through `BaseNode`.
+**FR-4 [MINOR] (FE-1, placement confirmed by probe, the server's error UNCONFIRMED) — The prelude is misplaced when the script starts with a block comment, KDoc or `@file:` annotation; some top-level-only declarations land inside a function body**
+- Where: `language-server-extension/src/kotlin/KotlinScriptPrelude.ts:51-73` (`SKIPPABLE_LINE = /^\s*(\/\/.*)?$/` skips only blank and `//` lines before the import block).
+- Problem: `lineAfterLeadingImports` stops at the first line that is not blank, a `//` comment or an `import`. For `/* Copyright */`, a KDoc block, or `@file:Suppress(...)` first, the hidden header is inserted at line 0 and the user's `import` lines end up *inside* `fun … = run { … }` (probe confirmed). Kotlin does not allow `import` in a function body, so the server will most likely flag the user's import with a false error although the script is valid and runs (UNCONFIRMED against the real server). Likewise `object`, `enum class`, `interface`, `typealias` are fine at script top level but are inside a function body here; the server will likely reject them.
+- Fix: skip `/* … */` blocks (multi-line) and `@file:` lines in `lineAfterLeadingImports`; add the cases to `KotlinScriptPrelude.spec.ts`; either document the top-level-declaration limit or filter those diagnostics in the registration's `diagnosticFilter`.
 
-### Runtime and test verification
+**FR-5 [MINOR, UNCONFIRMED] (FE-1) — Completion edges around hidden text: the wrapper name can be offered, and auto-import edits are dropped**
+- Where: `KotlinScriptPrelude.ts:55-57` (`continuumScript<key>`), `LspMonacoConversion.ts:93-108` (`toAdditionalEdits`; `if (range)` at `:100`, spec-documented). The registration has a `diagnosticFilter` but no completion filter.
+- Problem: (a) the hidden wrapper function (and the shared context types in the same package) are in scope, so top-level completion will most likely list `continuumScript<key>` — including other open dialogs' wrappers. (b) A completion item whose `additionalTextEdits` insert an `import` into hidden text is applied without that edit: the symbol is inserted, the import is not.
+- Failure scenario: type `con` → a suggestion `continuumScriptdoc1…` appears; or pick a not-yet-imported class from the list and the server then underlines it as unresolved until the user types the import by hand.
+- Fix: (a) a generic completion-item filter beside `diagnosticFilter`, set by the Kotlin registration; (b) either accept and document it, or map an edit that lands at a hidden boundary onto the start of the user's text.
 
-- **NOT VERIFIED in this review:** `yarn workspace @continuum/workflow-editor-extension test`, TypeScript compilation, build, and all browser scenarios. The environment profile reports Node and Yarn unavailable. No build or install was attempted, consistent with the instruction not to build or install the workbench.
-- The frontend Round 14 report records the ordinary-node drag, drag-out, resize, and `loops.mjs` browser checks as passing; these are developer-reported results, not independently verified here.
-- The same report records the compact viewer-chip one-row assertion as failing (two rows and horizontal overflow), and the full `loops-dialog.mjs` run as interrupted. These remain developer-reported runtime results. The compact one-row behavior is not an AC-37 requirement in the approved plan, so it is not treated as a blocking finding here.
+**FR-6 [MINOR] (FE-2) — The genericity guard does not scan most editor-extension files**
+- Where: `language-server-extension/src/common/GenericityGuard.spec.ts:21,56-65` (`EDITOR_HOOK_FILE_PATTERN = /^useLanguageIntelligence.*\.tsx?$/` over `workflow-editor-extension/src/browser/hooks` only).
+- Problem: not scanned: `LanguageIntelligenceFooter.tsx`, `store/LanguageIntelligenceStore.ts`, `contribution/LanguageIntelligenceContribution.ts`, `common/LanguageIntelligenceDecision.ts` (+ spec) and the module additions. I read them: no language tokens today, so this is a guard gap, not a violation. The plan wants the editor extension language-free except the data-only id.
+- Fix: widen the guard to an explicit list or pattern covering those files (`^(use)?LanguageIntelligence.*\.tsx?$` across `browser/{hooks,components/node-dialog,store,contribution}` and `common`); keep the self-test.
+
+**FR-7 [MINOR] (FE-1/FE-2) — The structural Monaco type is force-cast, so conformance with the real Monaco is never type-checked; the specs run on a fake**
+- Where: `workflow-editor-extension/src/browser/WorkflowEditorExtentionModule.ts:143-145` (`as unknown as MonacoApi`), `language-server-extension/src/browser/MonacoTypes.ts:29,88` (`uri: unknown`).
+- Problem: the cast hides drift. My scratch type-check against `@theia/monaco-editor-core` found everything compatible except `registerDefinitionProvider` (`MonacoLocation.uri: unknown` versus Monaco's `Location.uri: Uri`). Benign at runtime (`toLocations` returns the model's own `uri`), but all service/adapter specs run on `FakeMonaco`, so a real-API mismatch (e.g. after a Monaco upgrade) would show up only in a browser.
+- Fix: in `workflow-editor-extension`, where Monaco's typings exist, add a type-only assertion that `typeof import('@theia/monaco-editor-core')` is assignable to `MonacoApi` (and loosen `uri` to what the adapter really needs); drop the `as unknown` cast.
+
+**FR-8 [MINOR, UNCONFIRMED] (FE-1; self-reported in 04-frontend-dev) — Re-open after a lost wire can hit the bridge's duplicate-`didOpen` refusal**
+- Where: `DocumentSynchronizer.ts` (reopens on wire return with the same document key ⇒ same URI), `ReconnectingTransportSource.ts:13` (first retry after 1 s); bridge refusal per `03-backend-dev.md`.
+- Problem: if the new wire's `didOpen` arrives before the bridge has processed the old wire's close (half-open TCP), it is refused and the document is never open server-side, while the chip — driven by server state — says "ready". No markers or completions until the dialog is reopened.
+- Fix: use a fresh document key per wire (the synchronizer owns the key) and match diagnostics by the current key; or have the bridge replace instead of refuse (backend, out of my scope).
+
+**FR-9 [MINOR] (FE-1) — Test gaps around the Theia-bound transport and the failure paths**
+- `TheiaTransportSource.ts`, `TheiaChannelTransport.ts`, `LanguageServerFrontendModule.ts`, `useLanguageIntelligence.ts` and the footer have no tests (the developer documents them as type-checked only; they need Theia/React). `ReconnectingTransportSource.spec.ts` has 3 tests and none for an opener that never calls back or throws (FR-1); nothing asserts the state before the first wire. The 14 service specs are strong but run on `FakeMonaco`/`FakeWire` (FR-7).
+- Fix: keep the Theia glue a thin file and move any decision logic (current/late attempt, watchdog) into the pure `ReconnectingTransportSource` with specs.
+
+#### NIT
+
+**FR-10 [NIT] (FE-2) — `any` typing.** `editor: any` in `CodeEditorRenderer.tsx:36`, `useLanguageIntelligence.ts:13`, `LanguageIntelligenceFooter.tsx:8`, `MonacoEditorWrapper.tsx:12,25`; `attach(model: any, …)` in `LanguageIntelligenceStore.ts:7`; `ask(): Promise<any>` / `item: any` in `MonacoLspAdapter.ts:102` and `LspMonacoConversion.ts:93`. The wrapper already used `any` for the editor, so this is consistent, but the new store/hook could use the already exported `MonacoTextModel` (type-only import) and narrow LSP payloads from `unknown`.
+
+**FR-11 [NIT] (FE-1) — The position mapper is read after the `await`.** `MonacoLspAdapter.ts:67,85,97` read `this.document.mapper` after `await this.ask(...)`, while the request position was mapped with the mapper read at `:103`. An edit to the import block while a request is in flight can shift the mapping for that one response (Monaco normally cancels on edits, so the effect is small). Fix: capture the mapper before the request and pass it on, or drop the response when `document.version` changed.
+
+**FR-12 [NIT, UNCONFIRMED] (FE-1) — Partial construction leak in `attach`.** `LanguageIntelligenceService.ts:51-57` calls `acquire()` (refcount, possibly opening the connection) before `new ModelLanguageSession(...)`; if a later part of the constructor throws (e.g. a provider registration), the refcount is never released and earlier parts stay registered. The hook's try/catch contains the exception, but the connection leaks until reload. Fix: try/catch around the construction that disposes what exists and calls `release`.
+
+**FR-13 [NIT] (FE-1/FE-2) — Small state details.** (a) `useLanguageServerState.ts:12-22` shows one stale frame (the previous session's view) when the session changes and allocates a new `view` on every change. (b) `VirtualDocument.ts:25` comment says `version` increments "for every `update` that produced a usable text", but `update()` increments on every call (`:41`). (c) The first `continuum/serverState` can only be missed if the channel delivers the AckOpen and the first message in one synchronous run (`adopt()` listens one microtask after the AckOpen); fine over a WebSocket, UNCONFIRMED.
+
+**FR-14 [NIT] (FE-1) — Chip visuals and swallowed errors.** `LanguageServerStatus.tsx:10-24` has hard-coded dot colours and `fontSize: 12` that do not follow the MUI theme (the package is MUI-free by design; the text colour comes from the footer). Dark-theme contrast of the dot is NOT VERIFIED. `connection.onError(() => undefined)` (`LspConnection.ts:129`) swallows protocol errors silently; a debug log would help support.
+
+**FR-15 [NIT] (FE-1) — Full-text `didChange` per keystroke.** `VirtualDocument.update` re-plans and rebuilds the `PositionMapper` and the synchronizer sends the full virtual text on every edit, without coalescing. Fine for script-sized text; a 50–100 ms debounce would be cheap if large scripts appear.
+
+**FR-16 [NIT] — Docs.** (a) `AGENTS.md:7` says "4 Yarn workspaces" but the table lists 6 (already stale before this change). (b) `.github/workflows/ci.yml:3` says "the two extensions that have them". (c) `language-server-extension/README.md:73`: `### Kotlin files in the file editor` sits under `## Tests`; since the file-editor route is being removed, drop or move it. (d) Release notes: the new entry says "This release lands only the core …" and then "the Kotlin Script node editor now uses them", and does not mention signature help and go-to-definition.
+
+### NOT VERIFIED
+
+- Theia webpack bundling of `vscode-jsonrpc/browser` (the entry is plain browser JS with no Node globals and there is a single copy in `node_modules`, but no bundle was built).
+- Runtime Inversify resolution of `LanguageIntelligence`/`MonacoInstanceProvider`, and that the symlinked workspaces yield one `LanguageServerFrontendModule` instance (webpack `resolve.symlinks` defaults to true, so likely).
+- Real Monaco and real bridge behaviour: completion/hover/signature help/definition end to end, marker rendering, what the server reports for edge scripts (FR-3 to FR-5).
+- The dark-theme look of the chip.
+- The thin build (FR-2 is deduced from Theia source).
+- Interaction with the `fwcd.kotlin` plugin: Theia's plugin-ext registers providers for `language: 'kotlin'` (`languages-main.js:107-125`); for `inmemory://model/N` its plugin host rejects ("There are no document for …", `plugin/languages/completion.js:33-35`), which is likely console noise only, and may not match at all if the extension's selector requires `scheme: 'file'`. Two `kotlin` language contributions (workbench Monarch via `MonacoLanguageRegistration`, plugin TextMate) could also change which tokenizer wins; both are outside this diff.
+
+### Suggested checks for the browser tester
+
+1. Script dialog: type `val x: Int = "a"` → marker at the right line/column; `flow.` completes; hover shows docs; chip goes starting → ready; the saved script is exactly the typed text (open, edit, save, reopen, compare).
+2. Delete the final `}` of an `if` block → is there a marker? (FR-3) Start the script with `/* c */` or `@file:Suppress("x")` followed by an `import` → false error? (FR-4)
+3. Type `con` at top level → is `continuumScript…` offered? Pick a class that needs an import → import missing? (FR-5)
+4. Two dialogs / open–close–open quickly; stop the backend mid-edit, restart it → chip returns to ready, markers return (FR-1, FR-8).
+5. Rest, CreateTable and Claude dialogs: no footer, no markers, no completion changes.
+6. Thin workbench (if built): chip text under a Script node (FR-2).
+7. Console: any `fwcd.kotlin` "no document" noise on the Script dialog.
+
+### Decisions that may need the user (plain language)
+
+- If the Kotlin language server can't be reached at all — or in the lightweight browser-only workbench, where there is no backend — the Script editor shows "Kotlin language server starting…" indefinitely. Options: show nothing in the lightweight variant, or show "unavailable" after a short wait (and keep retrying).
+- Forgetting a closing brace or parenthesis shows no red mark, because the closing line is added invisibly by the editor. Options: accept, or show the error on the last line the user typed.
+- A script that begins with a block comment or a file annotation before its imports will probably show a false error on the imports; a few declarations that are legal at the top of a script (named `object`, `enum class`, `interface`, `typealias`) will probably be flagged too. Options: fix the comment/annotation cases now (small), and document or filter the rest.
+- The invisible wrapper function's name may appear in the completion list, and auto-added imports from a completion are dropped. Options: accept and document, or hide/handle them.
 
 ### Verdict
 
-**CHANGES REQUESTED** — FR-27 is MAJOR. FR-28 is MINOR.
+**APPROVED.** The parts the review was asked to guard hold: the stored script is the typed text, the hidden prelude never reaches `onChange`/save, sessions and providers are disposed with the model (also with two dialogs), Save never waits on the server, and the other code editors are untouched. Specs (179 + 189) and `tsc` are green. The open items are failure-path and design-limit issues that are either narrow (FR-1, FR-8), cosmetic and variant-specific (FR-2), UNCONFIRMED against the real server (FR-3 to FR-5), or hygiene (FR-6, FR-7, FR-9 and NITs); none blocks Save or changes stored data. If the user wants strict handling of "no feedback when the server cannot be reached", FR-1 and FR-2 are the candidates to promote to MAJOR. Recommended before browser testing: FR-1 (with specs), FR-2 (decision), FR-4 (a few lines plus specs), FR-3 (small option plus specs).
 
-**Counts:** 0 BLOCKER, 1 MAJOR, 1 MINOR, 0 NIT.
+## Knowledge updates
 
-## Round 9
+Pages: `workbench.md` (language-server-extension section, "Editor wiring" paragraph) and `graph.json` unless stated.
 
-Scope: re-review only Round 8 findings FR-27 and FR-28 against the current worktree. No production code was changed as part of this re-review.
+1. **Pitfall — Theia channel open (page `workbench.md`, language-server-extension section; new graph pitfall on node `lsp-browser-client`).** `ServiceConnectionProvider.listen(path, handler, reconnect)` is `openChannel(...).then(...)` with no catch and `openChannel` is private. `ChannelMultiplexer.open(id)` uses the *path* as channel id and throws if it is already open or pending; pending opens are rejected when the main channel closes. A short WebSocket drop keeps the channels (writes are buffered); the main channel closes only after a failed reconnect negotiation. `ReconnectingTransportSource` retries only from the `onClose` of an opened wire, and `LspConnection` starts at `starting` and reaches `unavailable` only from a lost wire, so a wire that never opens leaves the chip at `starting`. Evidence: `node_modules/@theia/core/lib/browser/messaging/service-connection-provider.js:94-105`, `lib/common/message-rpc/channel.js:128-141,221-224`, `language-server-extension/src/browser/{TheiaTransportSource.ts:20-22,ReconnectingTransportSource.ts:46-70,LspConnection.ts:41,142}`.
+2. **Pitfall — thin workbench is browser-only (page `workbench.md`, layout/conventions; new graph node `continuum-workbench-thin`, edge to `language-server-extension` "pulls in transitively").** `continuum-workbench-thin` has `target: "browser-only"`; Theia collects extensions transitively (`application-package/lib/extension-package-collector.js`) and loads `frontendOnly || frontend` modules with no backend modules (`application-package.js` `computeModules`). `FrontendOnlyServiceConnectionProvider.listen` is a no-op (`@theia/core/lib/browser-only/messaging/frontend-only-service-connection-provider.js:73-75`), so anything built on `listen` never opens a channel there. A new dependency from `workflow-editor-extension` on another Theia extension also lands in the thin app; an extension that needs a backend should declare a `frontendOnly` module (not done for `language-server-extension` yet).
+3. **Stale fact — graph node `node-dialog-code-editor`.** Its doc says "no LSP today". Now: `MonacoEditorWrapper` has an optional `onEditorChange(editor|null)` prop, `CodeEditorRenderer` keeps the editor in state and renders `LanguageIntelligenceFooter` (`CodeEditorRenderer.tsx:36,94,97`); the footer's hook attaches only when the uischema declares `options.language` AND a registration exists (`LanguageIntelligenceDecision.languageForIntelligence`); the pre-existing `|| 'kotlin'` fallback at `CodeEditorRenderer.tsx:31` is only for syntax highlighting.
+4. **Concept — Monaco instance and bindings (page `workbench.md`, "Editor wiring").** The Monaco in `useMUIThemeStore` is `@theia/monaco-editor-core`, set in `ContinuumThemeService.registerAllThemes` (`theme/ContinuumThemeService.ts:29`). `WorkflowEditorExtentionModule.ts:139-147` binds `MonacoInstanceProvider` (cast `as unknown as MonacoApi`) and `LanguageIntelligenceContribution`. A scratch type-check showed the structural `MonacoApi` matches the real Monaco typings except `registerDefinitionProvider` (`Location.uri: unknown` vs `Uri`, `MonacoTypes.ts:29,88`).
+5. **Concept — provider scope (page `workbench.md`).** Monaco providers are registered per language id (global); `MonacoLspAdapter.ask` answers only for its own model by identity (`model !== this.model`), so two dialogs on the same language do not cross-talk. Theia's plugin-ext also registers `language: 'kotlin'` providers when `fwcd.kotlin` is installed (`@theia/plugin-ext/lib/main/browser/languages-main.js:107-125`); for in-memory models its host rejects with "There are no document for …" (console noise expected, NOT VERIFIED in a browser).
+6. **Pitfall — Kotlin wrapper limits (page `workbench.md`, Kotlin language bullet).** `KotlinScriptPrelude.lineAfterLeadingImports` skips only blank and `//` lines (`KotlinScriptPrelude.ts:51-73`), so a leading block comment, KDoc or `@file:` line puts the hidden header at line 0 and the user's imports inside the function body (probe-verified placement; the server's error UNCONFIRMED). The hidden last line `}` means a diagnostic at end of input maps to nothing (`PositionMapper.toUserRange` drops wholly hidden ranges), so a missing `}` shows no marker. The wrapper name `continuumScript<key>` has no completion filter. `LspMonacoConversion.toAdditionalEdits` drops edits that land in hidden text.
+7. **Pitfall — `GenericityGuard` scope (page `workbench.md`).** It scans `language-server-extension/src/{common,node,browser}` and only `workflow-editor-extension/src/browser/hooks/useLanguageIntelligence*`; the footer, store, contribution and `common/LanguageIntelligenceDecision.ts` are not scanned (`GenericityGuard.spec.ts:21,56-65`).
+8. **Recipe — CI independence (page `workbench.md`).** `workflow-editor-extension/tsconfig.test.json` includes only `src/common`, so pure logic that must be tested in CI has to live there (the editor extension's specs cannot import `language-server-extension/lib`). Turbo `build.dependsOn ['^build']` orders the builds; `language-server-extension/.gitignore` ignores `lib/` and `.test-out/`.
+9. **Fact — bundling inputs (page `workbench.md`).** `vscode-jsonrpc@8.2.0`: `main` `./lib/node/main.js`, `browser` field maps it to `./lib/browser/main.js`, `vscode-jsonrpc/browser` resolves via `browser.js`; no `exports` map; one copy under the workbench `node_modules`. The `yarn.lock` needed no change because every new dependency key already existed (workspace links are not recorded in Yarn v1).
+10. **Environment (page `dev-environment.md`, already mostly covered).** Plain `bash` has no `node`; use `bash -ic` for any Node/Yarn command.
 
-### Previous findings
+## Round 2
 
-| Finding | Status | Current verification |
+Reviewer: Frontend Expert. Read-only re-review of what changed since round 1: the developer's fix round ("Round 5 — fix round 1" in `04-frontend-dev.md`) and the browser tester's round 2 on a real build (`06-frontend-browser-tests.md` "## Round 2", build #3 on :3005, PASS). Nothing was built; `lib/`, `src-gen/`, :3005 and Docker were not touched.
+
+**Verdict: CHANGES REQUESTED** — one MAJOR, and it needs no code: the release notes promise that "a missing closing brace is flagged on the last line", which the shipped language server never makes possible, and the documentation of the Script editor's known limits that was decided is not written yet (FR-17). New code findings are MINOR (FR-18 to FR-20) and NIT (FR-21 to FR-25). None can change the stored script, leak the hidden prelude into `onChange`/Save, or block Save. Round-1 FR-1 to FR-4 are closed in code (FR-3 turns out to be inert with this server); FR-5 to FR-8 and FR-10 to FR-15 were not touched, FR-9 and FR-16 are partly addressed (status table below). To reach APPROVED: FR-17 (text only). Worth doing in the same pass because they are small: FR-18's cheap half, FR-19, FR-20.
+
+### What I ran / read
+
+| Command / source | Result |
+|---|---|
+| `yarn workspace @continuum/language-server-extension test` (via `bash -ic`) | 215 tests, 0 failures (93 are frontend-side; `04` reports 189, the node-side specs of the same workspace were edited after that report) |
+| `yarn workspace @continuum/workflow-editor-extension test` | 192 tests, 0 failures (as `04` reports) |
+| `npx tsc --noEmit -p tsconfig.json` in both workspaces | exit 0 |
+| Scratch probes on the compiled pure modules in `.test-out` (scripts in `/tmp`, deleted): `planScriptDocument` + `PositionMapper` for import-only, import+body, comment-only, empty, `/* */`-only scripts; the real `ReconnectingTransportSource` with fake timers for "first open never answers, watchdog, retry, late wire" | results quoted in FR-18 and FR-19 |
+| Read | `DialogEditorLanguage.ts` (+spec), `CodeEditorRenderer.tsx` (+diff), `MonacoEditorWrapper.tsx` (+diff), `MonacoLanguageRegistration.ts` (+diff), the whole language-server browser/common/kotlin diff (`LanguageServerRegistration`, `PositionMapper`, `VirtualDocument`, `MonacoLspAdapter`, `LanguageIntelligenceService`, `LspConnection`, `LspTransport`, `ReconnectingTransportSource`, `TheiaTransportSource`, `KotlinScriptPrelude`, `KotlinScriptRegistration`) and their specs, `GenericityGuard.spec.ts`; Theia 1.74.1 `service-connection-provider.js/.d.ts`, `common/message-rpc/channel.js`, `connection-source.d.ts`, `monaco-languages.js`; Monaco `monarchCompile.js`; release notes, README, AGENTS.md, `language-server-extension/README.md` |
+| Factory-ID scan (house rule 13) over the workbench diff, specs, docs and release notes | none (`CONTNM-180` in the release-notes heading is the Jira key); the tester's repo has some: FR-20 |
+
+### Round-5 claims checked against the code
+
+| Claim (`04`, Round 5) | What I checked | Result |
 |---|---|---|
-| FR-27 [MAJOR] | **STILL OPEN** | `loops-dialog.mjs:356` now asserts that the visible `m1` member has the Success status class and badge, but the three-iteration fixture makes the member `SUCCESS` on every iteration; it cannot detect an earlier-iteration status being shown instead of the final iteration's status. |
-| FR-28 [MINOR] | **RESOLVED** | Exact factory-ID search over `continuum-system-tests` source and docs found no `FE-n`, `AC-n`, `D-n`, `BE-n`, or `FR-n` references. The UI scripts use descriptive `record()` labels. |
+| Options are read from `props.uischema.options` | `CodeEditorRenderer.tsx:26`; same pattern as `CredentialRenderer.tsx:101` and `QueryConditionRenderer.tsx:38`; the invented `options?` prop interface is gone; `React.FC<ControlProps>` type-checks | TRUE. Side effects: FR-25 |
+| Popups no longer clipped: `fixedOverflowWidgets: true` | `CodeEditorRenderer.tsx:92-93` inside the `options` literal that `MonacoEditorWrapper.tsx:48` spreads at creation (and `updateOptions` re-applies every render, as before). Only this renderer passes it, so it applies to the four code-format editors (Rest, CreateTable, Claude, Script) and not to `CelConditionEditor`/`JsonViewerDialog`. `NodeDialog` is a plain MUI `Dialog`; no Draggable/transform on its ancestors (grep) | TRUE. The tester measured the popup `position: fixed` and 100 % inside the viewport. Dark theme and a dragged dialog: NOT VERIFIED |
+| Own Monaco id `continuum-kotlin-script`, no Kotlin fallback, `freemarker` mapped to `freemarker2` | Declared languages in the feature repos: Rest `freemarker2`, CreateTable `freemarker`, Claude `freemarker2`, `markdown`, `json` (x2), Script `kotlin`. `DialogEditorLanguage.ts` maps `kotlin` and `freemarker`, undeclared or empty gives `plaintext`, anything else passes through. Registration `MonacoLanguageRegistration.ts:208,295` reuses the Kotlin Monarch module with no extensions or aliases | TRUE. Reusing the module compiles the shared Monarch JSON once per id (`monarchCompile` mutates the JSON, each id gets its own lexer): safe, and the tester saw identical tokens and colours before and after a `.kt` file opened. The three ids stay apart correctly: editor id `continuum-kotlin-script` (`editorLanguageId`), wire `languageId` `kotlin`, registration id `kotlin-script`; the service matches `editorLanguageId ?? languageId` (`LanguageIntelligenceService.ts:20`), `VirtualDocument` exposes it, the adapter registers its four providers under it and answers by model identity. No Kotlin string leaked into generic code: guard green, and the only Kotlin tokens in the editor extension are the data-only mapping and the pre-existing Monarch import |
+| Channel open failure: watchdog, retry, late wire adopted once, throwing opener caught | `ReconnectingTransportSource.ts:49-96`: state is per `connect` call, both timers cancelled on dispose, a late or second wire is closed (`:78-81`), the throw is caught | TRUE, with one hole: FR-18 |
+| Unreachable becomes `unavailable` | `LspConnection.ts:50,138-142`: only when not disposed and no current wire; `adopt` moves to `starting`, subscriptions and listeners survive, `onWireChange(true)` fires; the doc at `:20` is fixed | TRUE. Thin build: only simulated by the tester (held channel), NOT VERIFIED |
+| Missing closing brace: plan flag, errors only | `PositionMapper.ts:30,92-101`, set at `KotlinScriptPrelude.ts:99` | Implemented as described, inert with the shipped server, geometrically too loose: FR-19 |
+| Header after block comments, KDoc and `@file:` | `KotlinScriptPrelude.ts:67-83` | TRUE: the tester's five header cases passed against the real server. Edge quirks: FR-24 |
 
-### FR-27 evidence
+**A round-1 miss, owned here.** Round 1 accepted "the renderer passes the declared `options.language`" as TRUE without tracing how JSONForms hands the options to a renderer. In HEAD the renderer read an invented `options?` prop (`git show HEAD:…/CodeEditorRenderer.tsx`, lines 10-24), which JSONForms never fills, so `options.language` was always undefined: the Script dialog never attached the language server, and every code editor (Rest, CreateTable, Claude, Script) was highlighted as Kotlin with 15 rows. Only the real build showed it (the tester's FE-A); sibling renderers (`CredentialRenderer.tsx:101`) read `props.uischema.options` and would have shown it on paper. A claim about how a framework delivers a prop needs either the framework's types or a browser run; I now check this for every renderer change.
 
-- `continuum-system-tests/suites/ui/loops-dialog.mjs:351-356` builds a three-iteration loop with condition `vars["conditionalSplitterNode_m1.executionStatus"] == "SUCCESS"` and records an assertion that the visible member has `node-status--success` and a Success badge.
-- The assertion is evaluated from the run viewer after the run scenario. `WorkflowViewer` renders the workflow snapshot's member nodes through `BaseNode`, whose status class and badge are derived from that node's current status.
-- However, `m1` is expected to be `SUCCESS` on each iteration in this fixture. A viewer that incorrectly retained an earlier iteration's `SUCCESS` would satisfy the new assertion. Therefore the script asserts a member status, but does not prove that the rendered status is specifically the last-iteration status required by AC-37.
-- **Suggested fix:** Use a multi-iteration fixture where the member's expected final status differs from its earlier status, then assert the final status in the viewer (or otherwise make the test compare against an independently known final-iteration snapshot value).
+**Semantic errors in hidden lines, mis-mapping, leaks (the focus you named).** An error wholly inside the hidden header or closing line is dropped; one that straddles hidden text is clamped to the user's text; a zero-length one at the very end of the last user line is dropped; warnings in trailing lines are never shown (the flag is errors only); the message text is never rewritten. The hidden text cannot reach `onChange`, Save or the model: the session never writes to the Monaco model (spec asserts the value after attach and after edits), and the stored text in the tester's three save runs equalled the typed text. The one mis-map I found is FR-19, plus the wrapper's own text can appear in a *message* only for errors that are clamped from hidden lines (same finding).
 
-### FR-28 evidence
+### Findings
 
-- Searched `continuum-system-tests` with an exact identifier pattern across source and documentation; no factory IDs were found.
-- The `loops.mjs` and `loops-dialog.mjs` assertions now label behaviors (for example, `run viewer: ...`) rather than factory criteria. No test-source ID cleanup regression was found.
+#### MAJOR
 
-### Verification limits and verdict
+**FR-17 [MAJOR] (docs; text only) — The release notes promise a marker for a missing closing brace that the server never produces, and the decided "known limits" documentation is missing**
+- Where: `release_notes/RELEASE_NOTES_v0.0.16.md:11` ("…and a missing closing brace is flagged on the last line."); missing in `release_notes/RELEASE_NOTES_v0.0.16.md`, `README.md` and `language-server-extension/README.md:63-65`; the `.kts` sentence at `release_notes/RELEASE_NOTES_v0.0.16.md:138` ("Kotlin files (`.kt`, `.kts`) … get code intelligence").
+- Problem: the tester proved against the real server that fwcd kotlin-language-server 1.3.13 reports no syntax (parser) errors at all, in the wrapped script and in plain `.kt` text (missing `}` or `)`, `val = 3`, junk, unclosed string: zero diagnostics; `markers: []` in `r2b-01/02/03`). The clamp can only move an error the server sends, so the sentence is false for the shipped build. None of the three limits that were decided to be documented appears in any text: (a) the editor shows the server's semantic findings only (type mismatch, unresolved reference, unused variable, unreachable code), not syntax errors, which the node reports when the script runs; (b) script-level `object`, `enum class`, `interface`, `typealias` and `const val` get red "cannot be local" style markers because the script is analysed as the body of a function, although the node's engine may accept them (not verified); (c) `.kts` files in the file editor are only partly usable (a whole-file false error), yet line 138 lists them as supported.
+- Failure scenario: a user (or support) reads the release notes, deletes a `}` and sees no mark; another writes `object Util { … }` in the script and gets an unexplained red error.
+- Fix (no code): delete the clause at `:11`; add two or three sentences on the limits (a) and (b) to that release-notes entry and to the Kotlin section of `language-server-extension/README.md` and the workbench README's description of the Script editor; qualify `.kts` at `:138` as limited. Until the engine is checked, word (b) as advisory: the node decides when the script runs.
+- Why MAJOR: the release notes are shipped, user-facing and house-rule-bound (checklist item 10) and currently state behaviour that does not exist; the documentation the user decided on is outstanding. It is a five-minute fix, so it is not a reason to doubt the code.
 
-- This was source verification only. Node.js and Yarn are unavailable in the environment, so the browser scripts and workbench tests could not be run. No workbench build or install was attempted.
-- The tester-reported baseline Theia disposed-view errors and favicon 404 remain low-severity observations; they were not independently reproduced and do not change this finding.
-- **CHANGES REQUESTED** — FR-27 remains MAJOR; FR-28 is resolved.
-- **Counts:** 0 BLOCKER, 1 MAJOR, 0 MINOR, 0 NIT.
+#### MINOR
 
-## Round 10
+**FR-18 [MINOR] (FE-1; the tester's FE-E) — A scheduled retry opens a second channel on the same path when the late answer of the previous attempt was adopted, and retries during an unanswered open raise uncaught "already open" errors**
+- Where: `language-server-extension/src/browser/ReconnectingTransportSource.ts:49-74` (`attempt()` calls `this.open` before looking at `current`), `:75-95` (`accept` adopts a wire but leaves `pending` scheduled), `TheiaTransportSource.ts:20-22` (the opener is `provider.listen(path, …, false)`).
+- Problem A (deterministic, probe-proven on the real class with fake timers): attempt 1 never answers; the watchdog fires (`onUnreachable`, retry scheduled); the late wire of attempt 1 arrives before the retry timer and is adopted (`current` set, one wire given to the connection); the retry still fires and calls the opener a second time while that channel is open (opener calls: 2). In Theia `ChannelMultiplexer.open(path)` throws "Another channel with the id '…' is already open" (`channel.js:221-224`) inside the private async `openChannel`; `listen` returns void (`service-connection-provider.js:94-105`), so nobody can catch it: an uncaught rejection, no functional harm (the first wire works). The existing spec ("never opens … late wire adopted once") runs the retry before the late wire, so it does not cover this order.
+- Problem B (the tester's FE-E, confirmed from Theia's source): while the Open of an attempt is outstanding on the same main channel (`pendingOpen`), each watchdog retry calls `listen` again and `open` throws synchronously: one uncaught page error per retry (three in the tester's run at 27.9, 39.9 and 53.9 s, none after the held open was answered). Derived from the same code and UNCONFIRMED in a browser: after a connection outage longer than the 10 s watchdog the retries pile up awaiting `channelReady` (`service-connection-provider.js:66-69,86-95`); when the socket returns the first opens, every other one throws, and the retry timer still scheduled throws once more after the wire was adopted. Theia also rejects a pending Open when the main channel closes (`channel.js:128-141`), again uncaught.
+- Why MINOR: console noise only (chip `unavailable`, editing, Save and other editors unaffected; the late wire is adopted). It is the same duplicate-id mechanism flagged in round 1, now reachable on the normal recovery path, and it is an uncaught error per retry in a shipped workbench.
+- Fix: (1) cheap, removes A: `if (disposed || current) return` at the top of `attempt()` and `pending?.dispose()` in `accept`; add the spec "retry scheduled, late wire arrives, retry fires: opener not called again" to `ReconnectingTransportSource.spec.ts` (and one that the watchdog is cancelled when a wire arrives first). (2) For B choose: accept and document, or stop retrying on a timer and re-open when Theia reports a new main channel (inject `ConnectionSource` from `@theia/core/lib/browser/messaging/connection-source`, `onConnectionDidOpen`, into `TheiaTransportSource`; NOT VERIFIED that it injects cleanly here, needs a spec on a fake). The tester's "never call the opener while an attempt is outstanding" on its own would hang forever when the outstanding Open was rejected by a main-channel close, because `listen` does not report that.
 
-Scope: re-review only FR-27 against the Round 7 status-contrast fixture and its browser evidence. No production changes were intended.
+**FR-19 [MINOR] (FE-1; follow-up of round-1 FR-3) — The trailing-error clamp treats any hidden line after the last user line as trailing, including the Kotlin header; with this server the flag is inert**
+- Where: `language-server-extension/src/common/PositionMapper.ts:92-101` (`diagnostic.range.start.line <= this.userToVirtual[lastUserLine]`), `src/kotlin/KotlinScriptPrelude.ts:67-83,90-99`.
+- Problem: the test is geometric ("after the last user line"), not "inside `plan.trailingLines`". When the whole script consists of leading imports (blank and comment lines after the last import included), `lineAfterLeadingImports` returns the line count, the hidden header goes after the last user line, and an error on the header is shown on the user's last line. Probe on the compiled modules, user text `import java.util.UUID`: virtual lines v0 the import, v1 `import continuum.ScriptFlowVariables`, v2 `fun continuumScript…(row, flow) = run {`, v3 `}`; error diagnostics on v1, v2 and v3 all map to user 0:20-21 (end of the import line). With `import …` followed by `val x = 1` they are dropped (v1, v2) or mapped correctly (v4 to 1:8-9). Comment-only and empty scripts are fine (the header stays first).
+- Failure scenario: a user types the first `import` of a new script; if the server reports an error on the hidden header at that moment (for instance while it is still analysing the seed file), a red mark whose message names `ScriptFlowVariables` or `continuumScript…` (the wrapper's own text) sits on the import line until the next edit. Transient, rare, errors only. UNCONFIRMED on the server side; the mapping is probe-proven.
+- Also: with fwcd 1.3.13 the flag never fires on real input (the tester's FE-C), so today it is a generic plan field, a mapper branch and specs that serve a future server (the genericity guard already lists `kotlin-lsp` and `intellij-server` as possible replacements).
+- Fix: in `weave`, remember the virtual line where `plan.trailingLines` start (just before `addHidden(plan.trailingLines)`) and test `start.line >= thatLine`; add the import-only case to `PositionMapper.spec.ts` or `KotlinScriptPrelude.spec.ts`, and one spec with `severity` undefined (the only branch without a test). Or remove the flag until a server reports syntax errors. The first keeps what was asked for in round 1; this is a decision, see below.
 
-### Previous finding
+**FR-20 [MINOR] (house rule 13; outside the frontend diff, belongs to the system-test owner) — Factory IDs in the tester's UI suite**
+- Where: `continuum-system-tests/suites/ui/kotlin-lsp.mjs`: 27 lines carry a criterion or finding id: the header comment (`:18-28`), the scenario ids (`const id = 'AC-4'` … `'AC-18'`, `:511-818`; `'FR-3'` at `:1038-1040`; `'FR-4'` at `:1069-1071`; `'FR-1/FR-2'` at `:1155-1160`) and observation messages that print them (`:678`, `:1121`, `:1188`, `:1201`). The tester's other new files (lib, api suites, unit tests, README, AGENTS.md) are clean.
+- Problem: rule 13 forbids task, criterion and finding ids in code comments, test names and messages; they mean nothing to the next reader.
+- Fix: name the scenarios by what they check ("completion popup is visible", "marker line and column equal the editor text", …) in the ids, comments and log lines; the mapping to the criteria stays in `06-frontend-browser-tests.md`. Check that the README's scenario list does not quote the old ids.
 
-| Finding | Status | Current verification |
+#### NIT
+
+**FR-21 [NIT] (FE-2) — The dialog's Monaco language id is spelled in three places with nothing tying them together.** `language-server-extension/src/kotlin/KotlinScriptRegistration.ts:15`, `workflow-editor-extension/src/common/DialogEditorLanguage.ts:11`, `workflow-editor-extension/src/browser/language/MonacoLanguageRegistration.ts:208,295`. Each package pins only its own copy (`DialogEditorLanguage.spec.ts`, the service spec); a typo in one fails silently as an unhighlighted editor with no chip, in a browser only. Fix: export the id from `DialogEditorLanguage.ts` and use it in `MonacoLanguageRegistration.ts`; for the registration's copy a spec that reads both source files, as `GenericityGuard.spec.ts` already does, is enough.
+
+**FR-22 [NIT] (FE-2) — Stale wording after the id mapping.** `LanguageIntelligenceFooter.tsx:9` ("Language the schema declares for the editor") and the `declaredLanguage` parameter of `useLanguageIntelligence.ts:13` / `LanguageIntelligenceDecision.ts:7` now receive the mapped Monaco id (`continuum-kotlin-script`), not the declared `kotlin`. Rename to `editorLanguage` and fix the two comments.
+
+**FR-23 [NIT] — `language-server-extension/README.md` is stale.** Line 65 says "editor language `kotlin`" (it is `continuum-kotlin-script`; the wire language stays `kotlin`); the contract list (lines 7-12) does not mention `editorLanguageId` or `showTrailingErrorsOnLastUserLine`; the "Wire reopening with back-off" row does not mention the 10 s watchdog and the resulting `unavailable`; `### Kotlin files in the file editor` (line 73) still sits under `## Tests` (round-1 FR-16 c, text corrected, heading not moved).
+
+**FR-24 [NIT] — Header placement quirks.** `KotlinScriptPrelude.ts:73-75`: a line that starts with `/*` and has code after the `*/` (`/* a */ import x`) is read as the start of a multi-line comment, so the import is not seen; a multi-line `@file:Suppress(` annotation is split after its first line by the header. Both exotic and, because the server reports no syntax errors, at worst a missing or false semantic marker. Add the two cases to `KotlinScriptPrelude.spec.ts` or note the limit.
+
+**FR-25 [NIT, UNCONFIRMED] — Side effects of reading the options that neither the dev notes nor the release notes mention.** (a) `rows` is now honoured: the editor height is `min(lineCount, rows)` lines, so the Rest payload is capped at 10 lines (was 15) and the Claude fields at 8, 6, 8 and 8; the one-line Rest URL (`rows: 1`) stays 20 px high as before (it was already one line). (b) The new id appears in Theia's language-mode list by its technical name (no alias), UNCONFIRMED, needs a browser. (a) is what the schema authors declared; one line in the release notes would say so.
+
+### The tester's findings: rating and what to fix
+
+| Finding | My rating | Fix or accept |
 |---|---|---|
-| FR-27 [MAJOR] | **RESOLVED** | The fixture captures the nested Loop member as Warning while the outer Loop is on an earlier iteration, then requires the completed outer run and that same member to render Success. The distinct states, live viewer screenshots and source assertions establish the final outer-iteration status is displayed. |
+| FE-C: a missing `}` or `)` shows no marker, the clamp never triggers | MINOR, agree. It is a limit of the server, not of our code; our clamp is correct for the case it was written for but inert (FR-19) | Accept and document (FR-17). Do not add a bracket checker now: it must understand strings, raw strings, character literals, comments and string templates, or it creates false alarms that are worse than silence; if wanted, make it a separate feature (a syntax-check hook on the registration, with specs). Tighten or remove the clamp (FR-19) |
+| FE-D: valid script-level declarations get false markers | MINOR, agree | Document now (FR-17). Do not filter yet: a filter rule would also hide the marker if the node's engine rejects those declarations, and that is not verified. Once the engine accepts them, add `messagePattern` rules to `diagnosticFilter` (`KotlinScriptRegistration.ts:30-33` supports `severity` and `messagePattern`) for "cannot be local", "not applicable to 'local", "Nested and local type aliases" and "Enum entry … is uninitialized here" |
+| FE-E: uncaught "already open" page errors while an open never completes | LOW/MINOR, agree. Cause confirmed from Theia's source (it matches the tester's guess); wider than the test showed (FR-18 A and the outage variant) | Fix the cheap half (FR-18 1) with its spec; accept or document the rest, or move to a reconnect-event trigger (FR-18 2) |
+| OBS-J: JSON editors show no highlighting | LOW observation, agree; not a regression (they were wrongly coloured as Kotlin before). `json` is not among the languages this workbench registers | Accept; a JSON language contribution is a separate task |
+| BE-D: `.kts` only partly usable (upstream extension and server) | LOW/MEDIUM, out of the frontend's hands | Document (FR-17 c) |
+| OBS-W: two workbench instances of one user share the private workspace folder | LOW, dev only, effect not verified | Accept; the env var is documented by the tester |
+| BE-C: unseeded dev start not re-tested | out of my scope (packaging scripts) | Re-test when the entry scripts are reviewed |
 
-### FR-27 evidence
+### Round-1 findings: status
 
-- `continuum-system-tests/suites/ui/loops-dialog.mjs:419-434` uses a shared timestamp condition for an outer Loop and a nested Loop whose `parentNode` is `outer`. The nested Loop permits one iteration with `stop-with-warning`; after the timestamp threshold passes, its `before` condition is false, so it displays Success in the final outer iteration. The independent slow member keeps the early Warning visible.
-- At `:467-489`, the test reads the rendered nested Loop and outer Loop classes/text from the viewer, captures the first Warning, and only accepts a final state when the outer Loop is successful and finished and the nested member has Success. At `:500-513`, the assertion requires both the earlier Warning and final Success. This is a meaningful contrast: a stale Warning would fail the final assertion, unlike the former all-Success fixture.
-- Independently inspected `screenshots/round-7/93-member-status-early-warning.png` and `94-member-status-final.png`: the first visibly shows outer iteration 1 with nested Warning; the second shows outer completion after 8 iterations and nested Success. In the final screenshot, the nested Loop's child `m2` is Skipped because the nested condition is already false; the evidence is specifically for the nested Loop as a member of `outer`, not for `m2`'s last executed status.
-- **Finding resolved:** the status contrast is tied to the same nested Loop member across earlier and terminal viewer states and therefore addresses the prior gap in testing last-iteration display.
+| Round 1 | Status now |
+|---|---|
+| FR-1 failed or never-completing open not retried or reported | CLOSED in code: watchdog, retry with back-off, late wire adopted once, throwing opener caught, specs. The remaining duplicate-id noise is FR-18 |
+| FR-2 thin build shows "starting" forever | CLOSED in code (option: `unavailable` after the watchdog). A real thin build: NOT VERIFIED |
+| FR-3 missing `}` or `)` shows no marker | CLOSED as implemented; proven inert with the real server. Text: FR-17, tightening: FR-19 |
+| FR-4 header misplaced after block comment, KDoc, `@file:`; declarations inside the function body | Header part CLOSED (real server). Declaration part is the tester's FE-D, documentation still missing (FR-17). Quirks: FR-24 |
+| FR-5 wrapper name offered, auto-import edits dropped | STILL OPEN (unchanged; neither test round exercised it, UNCONFIRMED) |
+| FR-6 genericity guard scope | STILL OPEN (guard unchanged: `src/{common,node,browser}` and `useLanguageIntelligence*` only) |
+| FR-7 structural Monaco type force-cast | STILL OPEN (`WorkflowEditorExtentionModule.ts:144`); the real build ran |
+| FR-8 duplicate `didOpen` after a lost wire | STILL OPEN, UNCONFIRMED (the tester's kill/restart runs passed; a half-open wire was not provoked) |
+| FR-9 test gaps | PARTIAL: new specs for the watchdog, the never-opening and throwing opener, the flag on/off, the header cases, the editor id, `DialogEditorLanguage`. Still missing: FR-18 order, watchdog cancelled by an early wire, `severity` undefined, import-only header geometry (FR-19); the Theia glue and footer stay untested by design |
+| FR-10 to FR-15 (NITs: `any` typing, mapper read after `await`, partial-construction leak, small state details, chip colours, per-keystroke full-text sync) | STILL OPEN, unchanged, accepted as NITs |
+| FR-16 docs | PARTIAL: AGENTS.md row, README and release notes describe the editor id, `uischema.options` and the removed file-editor route. Open: "4 Yarn workspaces" against six rows, the CI comment "two extensions", the README heading under `## Tests`, the release notes omit signature help and go-to-definition; new inaccuracies FR-17 and FR-23 |
 
-### Verification limits and verdict
+Closed by the tester's real-build run, so no longer NOT VERIFIED: bundling of `vscode-jsonrpc/browser` with Theia's webpack (dev build), Inversify resolution of `LanguageIntelligence` and `MonacoInstanceProvider`, completion, hover, signature help and markers end to end, and the interaction with `fwcd.kotlin` (the dialog no longer wakes its JVM; its host answers nothing for in-memory models).
 
-- Independently ran `node --check suites/ui/loops-dialog.mjs`, `npm run check`, and `npm test` in `continuum-system-tests`; all passed (55 tests). These checks do not execute the browser scenario.
-- The Round 7 screenshots were inspected, but the live `ONLY=status-contrast` and `ONLY=run` browser scenarios were **NOT VERIFIED** in this review. Their reported runtime results remain tester-reported. No workbench build or install was attempted.
-- **APPROVED** — no BLOCKER or MAJOR findings remain in this re-review.
-- **Counts:** 0 BLOCKER, 0 MAJOR, 0 MINOR, 0 NIT.
+### NOT VERIFIED
+
+- The thin (browser-only) workbench: `unavailable` after 10 s is derived from Theia's source and simulated by the tester; no thin build was run.
+- Dark theme (popup, chip dot), a dragged dialog, the production (minified) bundle and the Docker image: not run by me or the tester.
+- Whether Theia's language-mode list shows the new id (FR-25 b).
+- Whether the node's JSR-223 engine accepts script-level `object`, `enum class`, `interface`, `typealias`, `const val` (decides whether FE-D markers are false).
+- FR-18 in a browser for the late-answer order and the outage recovery (A and the outage variant are derived from Theia's code and a fake-timer probe), and whether `ConnectionSource` injects into `TheiaTransportSource`.
+- FR-19's server-side trigger (an error on the hidden header while the script is only imports).
+- A half-open TCP wire (round-1 FR-8).
+
+### Decisions that may need the user (plain language)
+
+- **Forgotten brackets.** The editor will not mark a forgotten closing brace or parenthesis, because the Kotlin language server itself reports no syntax errors (shown against the real server); the node reports it when the script runs. The release notes currently claim the opposite. Options: correct the text and accept (recommended), or build our own bracket and quote checker later (it has to understand strings, comments and string templates or it raises false alarms).
+- **Declarations at the top of a script.** `object`, `enum class`, `interface`, `typealias` and `const val` at the top of a script get red "cannot be local" markers, because the editor checks the script as the inside of a function. Nobody has checked whether the node's script engine accepts them. Options: document it now (recommended); hide those messages once the engine is known to accept them (otherwise the filter would also hide a real error); or change the hidden wrapper (larger).
+- **Code that cannot trigger today.** The code that shows an error from the hidden closing line on the last visible line never fires with this server, and it has one small flaw for scripts that consist only of imports. Options: tighten it (about five lines and a test; stays ready for another server) or remove it.
+- **Console noise while the backend does not answer.** If the backend does not answer the editor's request to open the language-server channel, the editor correctly says "unavailable", but each retry also logs an uncaught "channel already open" error in the browser console, and one timing makes a retry open a second channel. Options: the small fix for the second case and accept the first as noise (recommended), or re-open only when the connection to the backend reconnects (more work; needs a check of Theia's API).
+- **`.kts` files** are only partly usable in the file editor (a whole-file false error), yet the release notes list them as supported. Options: say `.kt` is supported and `.kts` limited (recommended), or stop mentioning `.kts`.
+- **JSON fields in the Claude node** have no colours (the workbench registers no JSON language); before this change they were wrongly coloured as Kotlin. Accept, or add JSON highlighting as a separate task.
+- **Editor heights.** The Rest payload and the Claude fields now follow the row limits their schemas declare (10, and 8/6/8/8 instead of 15). No action unless they look too small in a browser.
+
+### Verdict
+
+**CHANGES REQUESTED** for FR-17 only, which is a text edit; nothing in the code needs to change to clear it. The code of the fix round holds: the dialog reads its options and language, the Script editor has its own Monaco id with the Kotlin tokenizer and no generic leak, popups are visible, the transport reports an unreachable bridge instead of "starting" forever, the header is placed correctly for comments, KDoc and file annotations, the stored script is still exactly the typed text, Save never waits, and other editors are untouched. Specs (215 and 192) and `tsc` are green. Recommended with the FR-17 edit (all small): FR-18 (cheap half and spec), FR-19 (tighten or remove), FR-20 (rename in the tester's suite). The NITs can wait.
+
+### Knowledge updates (round 2)
+
+Pages are under `.claude/knowledge/`. Where they overlap, round-2 items replace round-1 ones: items 1, 2 and 7 replace the facts in round-1 item 3 (node `node-dialog-code-editor`, the `|| 'kotlin'` fallback); item 4 replaces the "a wire that never opens leaves the chip at `starting`" consequence in round-1 items 1 and 2; item 5 extends round-1 item 1; item 6 replaces round-1 item 6. Round-1 items 4, 5, 7, 8, 9 and 10 stay valid.
+
+1. **Concept — dialog editor language id vs wire id vs registration id (page `workbench.md`, "Editor wiring"; graph: new concept node `dialog-editor-language`, edges from `node-dialog-code-editor` and `lsp-browser-client`).** `CodeEditorRenderer` maps the schema's `options.language` with `dialogEditorLanguage` (`workflow-editor-extension/src/common/DialogEditorLanguage.ts`: `kotlin` to `continuum-kotlin-script`, `freemarker` to `freemarker2`, undeclared to `plaintext`, anything else unchanged) and passes the result to Monaco, to the footer and to the language-intelligence hook. A registration has three ids: Monaco/editor id `editorLanguageId` (`continuum-kotlin-script`), wire `languageId` in `didOpen` (`kotlin`), registration id and channel name (`kotlin-script`); the service matches `editorLanguageId ?? languageId`. Why: a Monaco model of language `kotlin` wakes the `fwcd.kotlin` extension's own JVM (about 0.85 GB). `MonacoLanguageRegistration.ts:208,295` registers the id with the Kotlin Monarch module and no extensions or aliases; the shared Monarch JSON is compiled once per id, which is safe. The id is spelled in three files (`KotlinScriptRegistration.ts:15`, `DialogEditorLanguage.ts:11`, `MonacoLanguageRegistration.ts:208,295`) with no cross-check. `json` is not a registered language in this workbench, so JSON dialog editors are plain text.
+2. **Pitfall — JSONForms control options are on `props.uischema.options` (page `workbench.md`; node `node-dialog-code-editor`).** `props.options` does not exist on `ControlProps`; reading it silently gave defaults (every code editor was `kotlin`, 15 rows) until `CodeEditorRenderer.tsx:26`. Other renderers read it correctly (`CredentialRenderer.tsx:101`, `QueryConditionRenderer.tsx:38`). Now `rows` caps the editor height (`min(lineCount, rows)` lines) and `language` is honoured. The HEAD renderer read an invented `options?` prop (`const language = options.language || 'kotlin'`), so before this change every code editor was highlighted as Kotlin; the round-1 notes about that `|| 'kotlin'` fallback are obsolete (it is gone; an undeclared language means plain text).
+3. **Recipe — popups clipped by an `overflow: hidden` editor box (page `workbench.md`).** Pass `fixedOverflowWidgets: true` in the options given to `MonacoEditorWrapper` (`CodeEditorRenderer.tsx:92-93`); the wrapper spreads `options` at creation and calls `updateOptions` on every render. It applies to all code-format dialog editors; `CelConditionEditor` and `JsonViewerDialog` do not use it. Dark theme and a dragged dialog not verified.
+4. **Concept — transport watchdog and `unavailable` (page `workbench.md`; node `lsp-browser-client`).** `LspTransportSource.connect(id, onTransport, onUnreachable?)`. `ReconnectingTransportSource` arms a watchdog per attempt (`attemptTimeoutMs`, default 10 s) and on expiry calls `onUnreachable` and retries after a delay that doubles from 1 s to 30 s; a late wire is adopted once and any extra wire closed; a throwing opener is caught; dispose cancels both timers. `JsonRpcLspConnection.unreachable()` sets `unavailable` only when there is no wire, `adopt` returns to `starting`. In the thin (browser-only) build `listen` is a no-op, so the chip becomes `unavailable` after 10 s (real thin build not verified). Supersedes the round-1 pitfall that `unavailable` was reachable only after a lost wire.
+5. **Pitfall — Theia `listen` cannot be retried safely (page `workbench.md`; node `lsp-browser-client`).** `ServiceConnectionProvider.listen` returns void and `openChannel` is private (`service-connection-provider.js:94-105`); `ChannelMultiplexer.open(id)` throws "Another channel with the id … is already open" when the path is open or pending (`channel.js:221-224`), and a main-channel close rejects pending opens (`channel.js:128-141`), so any retry of `listen` for the same path while a wire is open or an Open is outstanding yields an uncaught rejection that cannot be caught. Retries issued during an outage queue on `channelReady` and collide when the socket returns. Current code still has two variants of that collision: (A) `attempt()` does not check `current` and `accept` does not cancel the scheduled retry (cheap fix), and (B) retries during an outstanding Open or an outage (needs the reconnect-event design below). A clean design re-opens on `ConnectionSource.onConnectionDidOpen`, not on a timer (not verified as injectable).
+6. **Pitfall — Kotlin wrapper limits (page `workbench.md`, Kotlin language bullet).** `lineAfterLeadingImports` now skips blank and `//` lines, multi-line `/* */` and KDoc, and `@file:` lines (`KotlinScriptPrelude.ts:67-83`), so the hidden header sits after them; quirks: code after `*/` on a `/*` line, multi-line `@file:` annotations. fwcd kotlin-language-server 1.3.13 reports no syntax errors, so a missing `}` or `)` never gets a marker and `showTrailingErrorsOnLastUserLine` (generic plan field, set by the Kotlin plan) never fires on real input; its test in `PositionMapper.trailingErrorRange` is geometric (any hidden line after the last user line), so for scripts that are only imports the hidden header counts as trailing. The function-body wrapper makes script-level `object`, `enum class`, `interface`, `typealias`, `const val` produce "cannot be local" markers (tester evidence `r2e-08…11`, `r2b-10`); whether the node's engine accepts them is not verified.
+7. **Stale graph facts (graph.json).** Node `node-dialog-code-editor` ("no LSP today") now has `MonacoEditorWrapper.onEditorChange`, the footer, the options and language mapping (`CodeEditorRenderer.tsx:26` options, `:31` language mapping, `:36,96,99` editor state, `onEditorChange` and footer, `:92-93` `fixedOverflowWidgets`); node `lsp-browser-client` needs the editor id and watchdog facts (items 1, 4); round-1 knowledge items 1 and 2 (open failure never reported, thin build "starting" forever) are superseded by item 4.
+8. **Pitfall — stale compiled specs (page `dev-environment.md`).** `yarn workspace @continuum/language-server-extension test` is `tsc -p tsconfig.test.json && node --test '.test-out/**/*.spec.js'` and never cleans `.test-out` (git-ignored): output of deleted sources stays (`.test-out/kotlin/KotlinFileRegistration.js` today), so an import of a removed module can pass locally and fail in a clean CI checkout. Delete `.test-out` before trusting a local pass after removing files. The compiled pure modules there can be `require`d from a scratch `node` script (`bash -ic`) to probe `planScriptDocument`, `PositionMapper` and `ReconnectingTransportSource` without a build.
+9. **Convention — documentation of editor limits (page `workbench.md`, conventions).** Release notes and READMEs about the Script editor must match what the language server can report: semantic findings only, no syntax errors; script-level `object`/`enum`/`interface`/`typealias`/`const val` flagged; `.kts` limited. The `GenericityGuard` scope is unchanged (still not covering the footer, store, contribution, `LanguageIntelligenceDecision` or `DialogEditorLanguage`; the last holds the data-only Kotlin id by design). Factory IDs also count in the tester's system-test suites (`continuum-system-tests/suites/ui/kotlin-lsp.mjs` carried 27).

@@ -1,75 +1,39 @@
-# Docs — Loops
+# Docs — Kotlin language-server support in the workbench + higher default pod memory
 ## Round 1
 
 ### Target version
-`platformVersion` = 0.0.23 (`continuum-platform-core/gradle.properties`). `continuum-docs/versions.json` = `["0.0.20"]`; 0.0.23 is not released. Edited `continuum-docs/docs/` ("next") only. No `versioned_docs/` file touched, no `docs:version` snapshot run. Branch `platform/0.0.23` (unchanged, no git writes).
+`platformVersion` 0.0.23, not released (`versions.json` only has 0.0.20) → edited `continuum-docs/docs/` ("next") only; no snapshot.
+Branch: worked in the working tree of the current branch `platform/0.0.23` (orchestrator's assumption; the user was not asked). No branch, no commit.
 
 ### Pre-existing local changes in continuum-docs (left untouched)
-- `docs/contributing/create-new-nodes/step-6-ship-it.md` (+5 lines: flow-variable size env var, "keep the worker on the platform version" warning)
-- `docs/deployment/helm-charts.md` (+17 lines: "Upgrade" section and the 0.0.23 warning)
-
-Both diffs are identical before and after my work (`git diff --stat`: +5 / +17). I do not link to the `## Upgrade` anchor of `helm-charts.md` (an uncommitted edit); the operator page links to the page only.
+None (`git status` clean before).
 
 ### Pages
 | Page | Created/Updated | What a reader learns | Source |
-|---|---|---|---|
-| `docs/feature-nodes/loop.md` (🔁 Loop, position 5) | Created | What a loop does; settings table (`condition`, `check`, `maxIterations`, `onLimit`, `onNonBooleanResult`, defaults); the CEL condition (`vars["name"]`, available functions/libraries, limits); carried flow variables; statuses, messages, every way a loop fails the run (run → `FAILED`); skipped/empty loops; iteration ceiling table; workflow JSON (`type: "Loop"`, `parentNode`, `data.collapsed`) and loop validation errors/warnings on start/validate/schedule; MCP spec `parent`; planned-workbench admonition | `continuum-commons/.../node/builtin/LoopNode.doc.md`, `LoopNodeDescriptor.kt`, `release_notes/RELEASE_NOTES_v0.0.23.md`, `docs/api/ENDPOINT_INVENTORY.md`, `McpWorkflowSpec.kt`, `LoopStatusPublisher.kt`, `LoopRunner.kt`, `LoopReset.kt` |
-| `docs/architecture/loops.md` (🔁 Loops: How They Run, position 5) | Created | Components; model + `$builtin` registration with retry (5 attempts, 5/10/20/40 s); iteration engine (start, reset, carried variables, progress never decreases, 40,000-event history guard); FAILED vs FINISHED publishing; `Workflow.sideEffect` per check; time-boxed 4-thread pool (250 ms wait, queue 200, outcome table); Temporal-paced retry; validation; terminate writes TERMINATED after 5 s; contributor notes: `continuum-loop-condition` module, why separate, protobuf-java-util pin 4.36.2, test table, commands | `continuum-loop-condition/README.md`, `TimeBoxedConditionEvaluationRunner.kt`, `LoopConditionCheck.kt`, `LoopConditionEngineConfig.kt`, `gradle/libs.versions.toml`, `WorkflowService.kt` (`STOP_SIGNAL_GRACE_PERIOD_MS = 5000`), release notes |
-| `docs/deployment/loops-operations.md` (🔁 Operating Loops, position 2) | Created | Upgrade order and what changes (schema registry needed, protobuf 4 in two images, `FAILED` run status for clients, `TERMINATED` record, new optional JSON fields); the fixed 4 evaluation threads; known limits with symptoms, measured numbers and recovery: cross-tenant delay (never failure), self-wedge, many slow checks vs 10 s workflow-task timeout, terminate ≈ 5 s; iteration ceiling | release notes (Upgrade notes, known limitations), `LoopConditionEngineConfig.kt`, application.yaml |
-| `docs/architecture/orchestration-service.md` | Updated | "Failed runs are FAILED" note; new "Loops" section pointing to the design page; terminate row (5 s, API server writes `TERMINATED`); determinism rule for recorded condition checks; schema-registry variable now also used for Loop registration | release notes, `ContinuumWorkflow` publishing notes |
-| `docs/architecture/node-model.md` | Updated | New "Built-in nodes" section: the Loop is registered by the orchestrator, `$builtin` marker | release notes, `ReservedIdRules.kt` (checked: `$` is reserved for node keys/port ids) |
-| `docs/architecture/overview.md` | Updated | Orchestration service row mentions the built-in Loop | — |
-| `docs/contributing/create-new-nodes/recipes.md` | Updated | New recipe "Set a flow variable for a loop condition" (`executionContext.setFlowVariable`), workers need no change for loops | `ExecutionContext.kt` (`setFlowVariable`, `getFlowVariable`) |
-| `docs/ecosystem/repositories.md` | Updated | platform-core row mentions the Loop and the `continuum-loop-condition` library | — |
-| `docs/feature-nodes/_category_.json` | Updated | Category description includes the built-in Loop | — |
+|------|-----------------|----------------------|--------|
+| `docs/feature-nodes/base-analytics.md` (new section "Editing a Kotlin script in the workbench") | Updated | Completion/hover/markers in the Script dialog, the three chip texts, hidden wrapper never stored, `.kt` files use `fwcd.kotlin`, accepted limits | `LanguageIntelligenceFooter.tsx`, `KotlinScriptRegistration.ts` (statusTexts), language-server-extension README, workbench release notes v0.0.16 |
+| `docs/deployment/workbench-resources.md` | Created (sidebar position 3) | New default 2Gi/4Gi and presets, small-cluster warning, raising existing workbenches via `PUT`, request>limit 400, Kotlin server memory/lifecycle, image size | platform release notes v0.0.23 (cluster-manager), `10-pod-memory-default.md`, workbench README, test reports |
+| `docs/architecture/language-intelligence.md` | Created (sidebar position 7) | Contributor view: registration, channel, id `kotlin-script`, bridge-owned versions, how to run specs; links to README | language-server-extension README |
 
 ### Sidebar / navigation changes
-Sidebar is auto-generated, so no `sidebars.ts` change. New pages carry `sidebar_label` with an emoji and `sidebar_position` (Loop 5 in Feature Nodes, Loops 5 in Architecture, Operating Loops 2 in Deployment). No new `_category_.json`. `sidebars.ts` not touched (no typecheck needed).
+None to config; folders use autogenerated sidebars with front-matter `sidebar_label`/`sidebar_position` (deployment 3, architecture 7). Cross-links added between the three pages.
 
 ### Verification
-- `npm run build` in `continuum-docs` (node_modules present, no network needed; local policy does not restrict docs) → **PASS**: `[SUCCESS] Generated static files in "build"`, no broken-link warnings; `build/docs/next/feature-nodes/loop`, `deployment/loops-operations` exist (`build/` is git-ignored).
-- `npm run typecheck` → not needed (no `.ts`/`.tsx` touched).
-- Factory-ID / artifact scan (`BE-n`, `AC-n`, `D-n`, `PR-n`, `BR-n`, `F-n`, `SCOPE`, `.factory`, ticket id) over all new and edited pages → no matches.
-- Mermaid diagrams are not validated by the build (theme renders client-side): NOT VERIFIED in a browser (syntax kept to constructs already used elsewhere in the docs, plus one `subgraph` with edges to it in `loop.md`).
-- The Kotlin recipe in `recipes.md` is NOT compiled (it says so on the page); API names checked against `ExecutionContext.kt`.
+- `npm run build` in continuum-docs → PASS (`Generated static files in "build"`, no broken links/MDX errors). `node_modules` existed; no install.
+- Created `continuum-docs/build/` (ignored by git; not in `git status`).
 
 ### Not documented on purpose
-- **Workbench loop UI** (box drawing, drag-in/out membership, collapse, condition dialog / query builder, palette drop, hasCycle in the editor, run display in the editor, Claude Code skill / Theia prompt changes): frontend is not built (on hold). `loop.md` carries a "planned, not shipped" admonition and tells readers to use the REST API or MCP tools today. The operator page says the workbench with loop support is not yet released.
-- Open minor/nit review findings (loop-start re-check not in history, positional args, stale wording, bridge SQL-text test, pending stop lost if the API server restarts within 5 s): not user-visible behaviour.
-- Cold-start Temporal "deadlock detected" on 0.5 CPU (observed, not a loop fault; user: separate improvement) and "terminate right before a natural end stays TERMINATED"/"terminate after a never-completed cancel shows TERMINATED": omitted, not decided as documented behaviour.
-- NOT VERIFIED live (not claimed as tested): the retry of the Loop registration publish (unit-tested only), the literal 9,000-element-list `sets.*` shape, a stuck run that ends by itself within the 5 s terminate grace. Documented behaviour for these comes from the code/KDoc and release notes, without claiming live results.
-- Internal class names appear only on the architecture page's contributor section and in the contributor-facing recipe/architecture text; the user guide uses none.
+Dark theme, real out-of-memory restart, both servers together in one pod (two-server figure labelled as estimate), Kubernetes rejection of request>limit as a 500, open MINOR/NIT findings, any syntax-error checker, claims of parity with the official Theia IDE, whether the JSR-223 engine accepts top-level declarations (stated as not verified). Internal tuning (restart back-off, 50-document cap, env vars) left to the README link.
 
 ### SCOPE / questions
-- SCOPE: the Loop page sits under "Feature Nodes" (its category text was widened) rather than in a new "Workflows" section; a dedicated section can be added later when the workbench UI ships and there is more to say about building loops on the canvas. Tell me if you prefer it elsewhere.
-- SCOPE (follow-up for later, not done): when the workbench loop UI ships, `loop.md` needs a "Build a loop on the canvas" section and the "planned" admonition removed; the same for the Operating Loops upgrade line about the workbench.
-- The operator upgrade bullets overlap with the user's uncommitted "Upgrade" section in `helm-charts.md`; I did not edit that file. The user may want to link the two pages when they commit it.
+- SCOPE: branch assumption above.
+- Conflicts with the brief: the pod-memory task file `10-pod-memory-default.md` still says 1Gi/2Gi (older); the v0.0.23 release notes and your brief say 2Gi/4Gi — I used 2Gi/4Gi (release notes/brief). Not checked against `ResourceSpec.kt`. The `PUT` JSON body (`resources` with `memoryRequest`/`memoryLimit`) is taken from the field names in `ResourceSpec`; not executed.
+- The "unavailable" chip explanation is deliberately general; the three chip texts are from code.
+- The brief's local-build step is described as `scripts/download-kotlin-ls.sh` and `theia download:plugins`; the workbench README also names `yarn --cwd continuum-workbench download:kotlin-ls`. The page points to the README for exact commands.
+- Reports 05–08 were read only via their verdict lines; the last test passes were still running.
 
-## Round 2
-
-### Target version
-`platformVersion` = 0.0.23; not released (`versions.json` contains only 0.0.20 and no `release/0.0.23` tag exists). Edited `continuum-docs/docs/` only; no version snapshot was run. Docs branch remains `platform/0.0.23`.
-
-### Pre-existing local changes in continuum-docs (left untouched)
-None were present at the start of this round (`git status --short` was empty). The prior-round local diffs listed above were no longer in the worktree. No unrelated files were changed.
-
-### Pages
-| Page | Created/Updated | What a reader learns | Source (code/README path) |
-|---|---|---|---|
-| `docs/feature-nodes/loop.md` | Updated | Workbench steps for adding a Loop from Flow Control, changing membership and nesting, resizing/collapsing, choosing membership behavior when deleting, configuring conditions in Builder or CEL mode, understanding validation feedback, and inspecting live/final Loop and member results in the run viewer. Removed the obsolete notice that workbench support was planned. | `continuum-workbench/workflow-editor-extension/src/browser/components/node/LoopNode.tsx`, `workflow-editor-extension/src/browser/components/workflow-editor/useLoopCanvas.tsx`, `workflow-editor-extension/src/common/LoopCanvasOperations.ts`, `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/QueryConditionRenderer.tsx`, `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/LoopConditionBuilder.tsx`, `workflow-editor-extension/src/browser/components/node-dialog/loop-condition/useConditionValidation.ts`, `workflow-editor-extension/src/browser/components/workflow-viewer/WorkflowViewer.tsx`, `workflow-editor-extension/src/browser/components/node-output-viewer/NodeOutputViewer.tsx`; `.factory/CONTNM-180/06-frontend-browser-tests.md` Round 7 and `.factory/CONTNM-180/08-frontend-review.md` Round 10. |
-| `docs/deployment/loops-operations.md` | Updated | Upgrade guidance now calls for a workbench build with Loop support instead of claiming that support is not released; links to the Loop workbench instructions. | `continuum-workbench/AGENTS.md` (Loop canvas behavior); `.factory/CONTNM-180/06-frontend-browser-tests.md` Round 7; `.factory/CONTNM-180/08-frontend-review.md` Round 10. |
-
-### Sidebar / navigation changes
-None. Both pages already have sidebar entries; the operations page now links directly to the new workbench instructions on the Loop page.
-
-### Verification
-- `npm run build` in `continuum-docs` (Node v24.16.0 and npm 11.13.0 via existing NVM; `node_modules` present) → **PASS**: `[SUCCESS] Generated static files in "build".`
-- `git -C continuum-docs diff --check` → **PASS**.
-- Stale planned/not-yet-released wording scan on both edited pages → **PASS**: no matches.
-- Manual MDX/front-matter check and local target-file checks → **PASS**. No `.ts`/`.tsx` or sidebar files changed; typecheck not needed.
-
-### Not documented on purpose
-No open frontend blocker/major review findings remain (expert Round 10 approved); the Round 7 live run and status-contrast checks passed. The guidance is limited to behavior supported by the implementation and browser evidence. No unverified visual or run behavior is stated as confirmed.
-
-### SCOPE / questions
-None.
+## Knowledge updates
+- `.claude/knowledge` (continuum-docs page): new docs pages `deployment/workbench-resources.md`, `architecture/language-intelligence.md`; Kotlin Script editor section lives in `feature-nodes/base-analytics.md`.
+- Pod-memory defaults in cluster-manager are 2Gi/4Gi (Small), presets 4/8, 8/16, 16/32Gi; `32Gi` option added; request>limit (after merge) → 400.
+- Language-server chip texts: "Kotlin language server starting… / ready / unavailable" (`KotlinScriptRegistration.statusTexts`).
+- Pitfall: `npm run build` in continuum-docs works offline when `node_modules` exists and writes an ignored `build/`.
