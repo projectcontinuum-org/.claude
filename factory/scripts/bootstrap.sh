@@ -31,11 +31,19 @@ while read -r name url role required; do
   [[ -z "${name:-}" || "$name" == \#* ]] && continue
   is_wanted "$name" "$required" || continue
   target="$WORKSPACE_ROOT/$name"
-  if [[ -d "$target/.git" ]]; then
+  if git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "= $name already present"
+  elif [[ -e "$target" || -L "$target" ]]; then
+    echo "ERROR: Cannot clone repository '$name': target '$target' already exists but is not a Git repository." >&2
+    echo "Existing contents were left unchanged. Inspect or back up that path, move it yourself if appropriate, then rerun bootstrap." >&2
+    exit 1
   else
     echo "+ cloning $name ($role)"
-    git clone "$url" "$target"
+    if ! git clone "$url" "$target"; then
+      echo "ERROR: Failed to clone repository '$name' from '$url' into '$target'." >&2
+      echo "Any files left by Git were not removed. Check the URL, network, and permissions; inspect or back up the target before resolving any partial clone and rerunning bootstrap." >&2
+      exit 1
+    fi
   fi
   if $has_lfs && grep -qs "filter=lfs" "$target/.gitattributes"; then
     echo "  git lfs pull in $name"

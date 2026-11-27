@@ -13,16 +13,25 @@ The factory is portable: `.claude/` at the workspace root is its own git repo (`
 ```bash
 mkdir continuum && cd continuum             # the workspace root (holds .claude/ and all repos side by side)
 git clone https://github.com/projectcontinuum-org/.claude.git .claude        # must be named .claude, directly in the workspace root
-.claude/factory/scripts/bootstrap.sh        # clone the required repos (+ git lfs pull), write .mcp.json
-.claude/factory/scripts/doctor.sh           # check tools, write .claude/.factory/environment.md
+claude                                      # start Claude Code in the workspace root
 ```
+
+Then start `/factory <requirement>`. Its preparation checks the environment, bootstraps absent required
+repositories listed as `yes` in `factory/repos.txt`, and refreshes the environment profile before requirements
+work. Optional repositories are not cloned by default. To prepare repositories manually first, run
+`.claude/factory/scripts/bootstrap.sh` as described in §2.
 
 Only on a restricted machine (VPN, blocked registries): `cp .claude/factory/local-policy.example.md
 .claude/factory/local-policy.md` and keep the rules that apply.
 
-Fix everything the doctor lists under "Missing for a full pipeline", re-run it, then use `/factory <requirement>`.
+Missing system tools are not installed by the factory; once repository preparation succeeds, they do not block
+requirements work. Install tools yourself only when needed; checks that depend on a missing tool remain
+`NOT VERIFIED` with the reason.
 
-## 1. System tools (user)
+## 1. System tools (user-installed, as needed)
+
+These tools enable particular builds, tests, and setup operations; they are not prerequisites for starting
+requirements work. The factory does not install system tools.
 
 | Tool | Why | macOS (Homebrew) | Debian/Ubuntu |
 |------|-----|------------------|---------------|
@@ -41,13 +50,18 @@ Then `git lfs install` once per user. Gradle itself needs no install (every repo
 
 `.claude/factory/repos.txt` lists every repo, its URL and whether the pipeline needs it.
 
+`/factory` automatically runs the default bootstrap when a required repository is absent. The manual commands are
+available when you want to prepare repositories before starting the workflow:
+
 ```bash
 .claude/factory/scripts/bootstrap.sh          # required repos
 .claude/factory/scripts/bootstrap.sh --all    # everything
 .claude/factory/scripts/bootstrap.sh continuum-feature-ai   # one more, on demand
 ```
 
-The script never touches a repo that already exists. Agents clone an optional repo on demand when the plan needs it.
+The default command clones only missing required repositories; optional repositories stay on demand. `--all`
+explicitly requests optional repositories too. The script does not change an existing repository. Agents can clone
+an optional repo on demand when the plan needs it.
 
 ## 3. Build caches (agent may run, needs network once)
 

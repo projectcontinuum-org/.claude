@@ -50,13 +50,18 @@ ticket key. Artifacts live in `.claude/.factory/`, which is part of the `.claude
 
 1. Run `.claude/factory/scripts/init-artifacts.sh`, then run `.claude/factory/scripts/doctor.sh --quiet` and read
    `.claude/.factory/environment.md`.
-2. Required repos ABSENT → run `.claude/factory/scripts/bootstrap.sh` (cloning is safe), re-run the doctor.
-3. Anything else under "Missing for a full pipeline" → show the list to the user with the SETUP.md section for each,
-   and ask (AskUserQuestion) whether to: (a) let you run the agent-runnable setup steps now (build caches, browser
-   driver — SETUP.md §3–4, only where the network section shows the registry reachable and the local policy allows),
-   (b) continue with a partial environment (affected checks become NOT VERIFIED), or (c) stop so they install system
-   tools (SETUP.md §1). Never install system software or use sudo yourself.
-4. If subagent launches need approval in this session, ask once for the whole run.
+2. If any required repository is ABSENT, run `.claude/factory/scripts/bootstrap.sh`. It uses only repositories
+   marked `yes` in `.claude/factory/repos.txt` by default; optional repositories are fetched only on demand. If
+   bootstrap exits unsuccessfully, surface its repository-specific error and recovery guidance, stop Phase 0, and do
+   not launch requirements work. Do not remove or overwrite an occupied target. After successful bootstrap, rerun
+   the doctor and read the refreshed environment profile before proceeding.
+3. If a build cache or browser driver is missing, follow the shared environment rules and SETUP.md: run an
+   agent-runnable setup step only when the network profile and local policy allow it; rerun the doctor afterward.
+4. Missing system tools (for example Node.js or Yarn) do not pause the workflow: do not install system tools or ask
+   the user whether to continue. Keep the missing tools recorded in the environment profile, proceed with
+   requirements work using the available environment, and mark every dependent check `NOT VERIFIED` with the missing
+   tool and reason.
+5. If subagent launches need approval in this session, ask once for the whole run.
 
 ## Phase 1 — Requirements (Product Manager)
 

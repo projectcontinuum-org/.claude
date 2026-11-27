@@ -12,13 +12,16 @@ OS. The factory must run unchanged on any machine.
 1. Read `.factory/environment.md` (written by `.claude/factory/scripts/doctor.sh`). If it is missing or older than
    this session's work, run `.claude/factory/scripts/doctor.sh --quiet` and read it.
 2. Its **Local policy** section is binding and overrides the defaults below (e.g. "workbench builds forbidden").
-3. If something you need is missing, follow `.claude/factory/SETUP.md`:
-   - a repo is ABSENT → `.claude/factory/scripts/bootstrap.sh <repo>`;
-   - a build cache / browser driver is missing and the network allows it (see the profile's Network section, and the
-     local policy does not forbid it) → run the matching SETUP.md step, then re-run the doctor;
-   - a **system tool** is missing (JDK, Node, Docker, k6, git-lfs) or a step needs sudo/credentials/GUI → do not
-     install it; report `ENV: <what> missing — SETUP.md §<n>` so the orchestrator asks the user.
-4. Never let a missing tool turn into a false PASS: the affected checks are `NOT VERIFIED: <reason>`.
+3. If any required repository is ABSENT, run `.claude/factory/scripts/bootstrap.sh`. Its default selection is only
+   repositories marked `yes` in `.claude/factory/repos.txt`; optional repositories stay on-demand. If bootstrap
+   fails, surface its error and recovery guidance and stop before requirements work; do not treat workspace
+   preparation as successful. After successful bootstrap, rerun the doctor and read the refreshed profile.
+4. If a build cache or browser driver is missing and the network allows it (see the profile's Network section, and
+   the local policy does not forbid it), run the matching SETUP.md step, then re-run the doctor. If a step needs
+   sudo, credentials, or a GUI, do not attempt it.
+5. If a **system tool** is missing (JDK, Node, Docker, k6, git-lfs), do not install it or ask whether to continue.
+   Record `ENV: <what> missing — SETUP.md §<n>` and proceed with the available environment. Every check dependent
+   on the missing tool must be reported `NOT VERIFIED: <reason>`.
 
 ## Pipeline
 

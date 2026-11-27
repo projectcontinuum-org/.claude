@@ -23,13 +23,16 @@ Clone this repo as `.claude/` in the **workspace root**, the folder that holds a
 ```bash
 mkdir continuum && cd continuum
 git clone https://github.com/projectcontinuum-org/.claude.git .claude
-.claude/factory/scripts/bootstrap.sh     # clone the required continuum-* repos, git lfs pull, write .mcp.json
-.claude/factory/scripts/doctor.sh        # check the machine, write .claude/.factory/environment.md
 claude                                   # start Claude Code in the workspace root
 ```
 
-Then type `/factory setup` in Claude Code. It reruns the checks, lists anything missing and offers to set up
-what it safely can.
+Start with `/factory <requirement>`. During preparation, `/factory` checks the environment and automatically
+bootstraps absent required repositories listed as `yes` in `factory/repos.txt`, then refreshes the environment
+profile. Optional repositories are not cloned by default. You can run
+`.claude/factory/scripts/bootstrap.sh` yourself first if you prefer to prepare the repositories manually.
+
+Missing system tools are not installed by the factory; once repository preparation succeeds, they do not block
+requirements work. Any checks that depend on a missing tool are reported as `NOT VERIFIED` with the reason.
 
 - **Full from-scratch guide:** [factory/SETUP.md](factory/SETUP.md) covers system tools for macOS and Linux, build caches, the browser driver and how to run the stack.
 - **Restricted machine** (VPN, blocked npm registry): `cp .claude/factory/local-policy.example.md .claude/factory/local-policy.md` and keep the rules that apply. Every agent obeys that file.
@@ -137,7 +140,7 @@ branch, or the coordinator copies the files).
 | Command | What it does |
 |---------|--------------|
 | `/factory <requirement>` | Full run, from requirement to report. |
-| `/factory setup` | Only checks and prepares this machine. Use it on a new machine or after installing tools. |
+| `/factory setup` | Checks and prepares this machine. Use it on a new machine or after installing tools. |
 | `/factory status <slug>` | Shows where a run stands: phase, task table, fix rounds. |
 | `/factory resume <slug>` | Continues a run after a break, a closed session or a question you left open. |
 
@@ -364,7 +367,7 @@ descriptions.
 | Symptom | Fix |
 |---------|-----|
 | `/factory` is not recognised | Start Claude Code from the workspace root (the folder containing `.claude/`), or reload the window. |
-| Many checks are `NOT VERIFIED` | Run `.claude/factory/scripts/doctor.sh` and read "Missing for a full pipeline"; follow [factory/SETUP.md](factory/SETUP.md). |
+| Many checks are `NOT VERIFIED` | Read `.claude/.factory/environment.md` and "Missing for a full pipeline"; install any needed tools yourself using [factory/SETUP.md](factory/SETUP.md). The factory does not install system tools, and dependent checks remain `NOT VERIFIED`. |
 | Browser tests are `BLOCKED` | Start the workbench with the changes (`yarn build && yarn start:workbench` in `continuum-workbench`) and say "workbench is running". |
 | System tests don't cover the new code | `make up` runs released images. Let the tester run the changed service with `bootRun` (SETUP.md §5). |
 | Asked to approve every agent launch | Approve once per run, or allow it in your Claude Code permission settings. |

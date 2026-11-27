@@ -88,7 +88,7 @@ repo_rows=""
 while read -r name url role required; do
   [[ -z "${name:-}" || "$name" == \#* ]] && continue
   d="$WORKSPACE_ROOT/$name"
-  if [[ -d "$d/.git" ]]; then
+  if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     branch="$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"
     dirty="$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
     extra=""
