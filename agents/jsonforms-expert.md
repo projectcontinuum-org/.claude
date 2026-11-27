@@ -79,3 +79,13 @@ When a task needs a pattern not summarized above, fetch the specific file rather
 ```bash
 curl -s "https://raw.githubusercontent.com/eclipsesource/jsonforms/master/packages/examples/src/examples/<name>.ts"
 ```
+
+## Knowledge graph (keep it alive)
+
+Before exploring the repos, read `.claude/knowledge/README.md` and the page for your area. Whenever you discover
+something durable that the graph lacks or has wrong — a module, file, data flow, concept, convention, build/run recipe
+or pitfall — update it **before you finish**, because chat context is compressed and lost but this graph survives:
+edit the matching page in `.claude/knowledge/`, add or fix the nodes/edges in `knowledge/graph.json` (stable kebab-case
+ids; keep the JSON valid and every edge endpoint defined) and add a line to `knowledge/change-log.md` for a shipped
+feature. Record only facts you verified in the code or by running something; mark anything else `NOT VERIFIED`. Writing
+under `.claude/knowledge/` is always allowed, even for roles that never change product code. Do not commit.

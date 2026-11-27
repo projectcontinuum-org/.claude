@@ -9,10 +9,58 @@ You (the main conversation) are the orchestrator. Subagents cannot ask the user 
 every question, gate and hand-off goes through you. Read `.claude/factory/CONVENTIONS.md` before starting; it defines
 the artifacts in `.factory/<task-id>/` that the agents exchange.
 
+## Shell Configuration
+
+All shell commands executed by the factory use **bash** with user home directory environment sourcing:
+1. User's `~/.bashrc` is sourced if it exists (interactive shell configuration)
+2. User's `~/.bash_profile` is sourced if it exists (login shell configuration)
+3. Environment variables and PATH modifications from these files are applied to all subsequent commands
+
+This ensures that:
+- User-specific tools and aliases are available
+- Custom PATH modifications are honored
+- Build tools, language managers, and package managers installed in home directories work correctly
+- IDE and development environment configurations are respected
+
+If you prefer to use a different shell (zsh, fish, etc.) for factory operations, the orchestrator will ask you to
+confirm your preferred shell at the start of a new factory run. Otherwise, bash with home directory sourcing is the default.
+
+## Knowledge graph
+
+Before Phase 0, read `.claude/knowledge/README.md` (and the page for the touched area). After the run's last phase
+(and after small direct changes), update `.claude/knowledge/` — matching page, `graph.json`, `change-log.md` — with
+verified facts only, and apply the `## Knowledge updates` lists that expert and reporter agents (which cannot edit it) put in their artifacts; every other agent updates the graph itself. Record it with `.claude/factory/scripts/record-artifacts.sh` only when the user asks to commit.
+
 Agents (in `.claude/agents/`, launched with the Agent tool by `subagent_type`):
 `factory-product-manager`, `factory-planner`, `factory-backend-developer`, `factory-frontend-developer`,
 `factory-backend-system-tester`, `factory-frontend-tester`, `factory-backend-expert`, `factory-frontend-expert`,
 `factory-technical-writer`, `factory-reporter`.
+
+## Shell Command Execution (for Agents)
+
+All agents run shell commands through bash with user environment sourcing:
+
+```bash
+# Agents wrap shell commands to source user environment
+bash --rcfile <(cat ~/.bashrc ~/.bash_profile 2>/dev/null; echo 'set +u') -c 'your_command_here'
+```
+
+Or alternatively for simpler command execution that preserves login shell behavior:
+```bash
+bash -ic 'your_command_here'  # Interactive mode sources ~/.bashrc
+bash -lc 'your_command_here'  # Login mode sources ~/.bash_profile
+```
+
+Agents should use one of these patterns when:
+- Running build commands (`npm run build`, `yarn build`, `./gradlew build`)
+- Running test commands (`npm test`, `./gradlew test`, `pytest`)
+- Running package managers (`npm install`, `yarn install`, `gradle`, `maven`)
+- Executing any command that depends on user PATH modifications or environment variables
+- Running version checks for tools that may be installed in non-standard locations
+
+The orchestrator documents the chosen shell in `state.md` for reference by all agents.
+If the user selected a non-bash shell, agents should adapt their command execution accordingly
+(e.g., `zsh -ic 'your_command_here'` for zsh, `fish -ic 'your_command_here'` for fish).
 
 Every agent prompt you write contains: the task ID, the artifact dir, the round number, the exact task IDs or
 findings to work on, and anything the user said that the artifacts don't capture yet. Keep prompts short — the
@@ -48,20 +96,25 @@ ticket key. Artifacts live in `.claude/.factory/`, which is part of the `.claude
 
 ## Phase 0 — Environment (always first)
 
-1. Run `.claude/factory/scripts/init-artifacts.sh`, then run `.claude/factory/scripts/doctor.sh --quiet` and read
+1. **Shell Configuration:** Determine the shell to use for all factory operations:
+   - Default: bash with sourcing of `~/.bashrc` and `~/.bash_profile`
+   - Alternative: Ask the user if they prefer a different shell (zsh, fish, ksh, etc.)
+   - Record the chosen shell in `.factory/<task-id>/state.md` as `shell: <shell-name>`
+   
+2. Run `.claude/factory/scripts/init-artifacts.sh`, then run `.claude/factory/scripts/doctor.sh --quiet` and read
    `.claude/.factory/environment.md`.
-2. If any required repository is ABSENT, run `.claude/factory/scripts/bootstrap.sh`. It uses only repositories
+3. If any required repository is ABSENT, run `.claude/factory/scripts/bootstrap.sh`. It uses only repositories
    marked `yes` in `.claude/factory/repos.txt` by default; optional repositories are fetched only on demand. If
    bootstrap exits unsuccessfully, surface its repository-specific error and recovery guidance, stop Phase 0, and do
    not launch requirements work. Do not remove or overwrite an occupied target. After successful bootstrap, rerun
    the doctor and read the refreshed environment profile before proceeding.
-3. If a build cache or browser driver is missing, follow the shared environment rules and SETUP.md: run an
+4. If a build cache or browser driver is missing, follow the shared environment rules and SETUP.md: run an
    agent-runnable setup step only when the network profile and local policy allow it; rerun the doctor afterward.
-4. Missing system tools (for example Node.js or Yarn) do not pause the workflow: do not install system tools or ask
+5. Missing system tools (for example Node.js or Yarn) do not pause the workflow: do not install system tools or ask
    the user whether to continue. Keep the missing tools recorded in the environment profile, proceed with
    requirements work using the available environment, and mark every dependent check `NOT VERIFIED` with the missing
    tool and reason.
-5. If subagent launches need approval in this session, ask once for the whole run.
+6. If subagent launches need approval in this session, ask once for the whole run.
 
 ## Phase 1 — Requirements (Product Manager)
 

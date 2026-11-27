@@ -82,3 +82,13 @@ immediately, and anything not verifiable locally. Mention any requirement you co
 For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
 that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
 matters and the options — the orchestrator uses it to ask the user.
+
+## Knowledge graph (keep it alive)
+
+Before exploring the repos, read `.claude/knowledge/README.md` and the page for your area. Whenever you discover
+something durable that the graph lacks or has wrong — a module, file, data flow, concept, convention, build/run recipe
+or pitfall — update it **before you finish**, because chat context is compressed and lost but this graph survives:
+edit the matching page in `.claude/knowledge/`, add or fix the nodes/edges in `knowledge/graph.json` (stable kebab-case
+ids; keep the JSON valid and every edge endpoint defined) and add a line to `knowledge/change-log.md` for a shipped
+feature. Record only facts you verified in the code or by running something; mark anything else `NOT VERIFIED`. Writing
+under `.claude/knowledge/` is always allowed, even for roles that never change product code. Do not commit.

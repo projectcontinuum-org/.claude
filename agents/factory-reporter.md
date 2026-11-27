@@ -53,3 +53,11 @@ Date: <today> · Status: READY TO MERGE | READY WITH OPEN ITEMS | NOT READY
 # Final message to the orchestrator
 
 Return the status line, the overview paragraph, the AC status counts, and the "User actions before merge" list.
+
+## Knowledge graph (keep it alive)
+
+Before reviewing, read `.claude/knowledge/README.md` and the page for your area. You cannot edit the graph, so end your
+artifact with a `## Knowledge updates` section listing every durable fact the graph lacks or has wrong (module, file,
+data flow, concept, convention, recipe, pitfall), each with the page it belongs on and the evidence (file path or
+command). Only verified facts; write `None` if there is nothing. The orchestrator applies them to `.claude/knowledge/`
+(pages, `graph.json`, `change-log.md`) because chat context is compressed and lost but the graph survives.

@@ -6,3 +6,7 @@ factory/local-policy.md
 .DS_Store
 .idea/
 *.swp
+screenshots/*
+# Agent-captured screenshots/images: local evidence, never versioned
+.screenshots/
+**/screenshots/

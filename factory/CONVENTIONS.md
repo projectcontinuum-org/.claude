@@ -7,6 +7,14 @@ environment rules and the house rules; agent files only add their role-specific 
 in it; it is not itself a git repo. Every path below is relative to it — never assume an absolute path, user name or
 OS. The factory must run unchanged on any machine.
 
+## Knowledge graph (every agent, before exploring)
+
+Read `.claude/knowledge/README.md` and the page for your area (architecture, workflows-and-loops, workbench,
+dev-environment). It maps repos, modules, data flow and gotchas, so you need not rediscover them. If your change
+adds/renames a module, concept, flow or pitfall, update the matching page, `knowledge/graph.json` and
+`knowledge/change-log.md` (agents with write access to their own area; otherwise list the needed update in your
+artifact for the orchestrator).
+
 ## Environment first (every agent, every run)
 
 1. Read `.factory/environment.md` (written by `.claude/factory/scripts/doctor.sh`). If it is missing or older than
@@ -71,7 +79,7 @@ these scripts.
 | `03-backend-dev.md` | backend-developer | per round: tasks done, files changed, unit tests, commands + results |
 | `04-frontend-dev.md` | frontend-developer | same, for frontend |
 | `05-backend-system-tests.md` | backend-system-tester | AC → test mapping, how the stack ran, results |
-| `06-frontend-browser-tests.md` | frontend-tester | AC → scenario mapping, results, `screenshots/` |
+| `06-frontend-browser-tests.md` | frontend-tester | AC → scenario mapping, results; screenshots go to the git-ignored `.claude/.screenshots/<task-id>/round-<n>/`, never into `.factory/` |
 | `07-backend-review.md` | backend-expert | findings by severity, verdict |
 | `08-frontend-review.md` | frontend-expert | findings by severity, verdict |
 | `09-docs.md` | technical-writer | target docs version, pages created/updated, docs build result |

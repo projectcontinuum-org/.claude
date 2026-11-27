@@ -11,6 +11,7 @@ repos. You approve the scope and the plan. Nothing is committed for you.
 - [Real-world examples](#real-world-examples)
 - [Ideas vs. requirements](#ideas-vs-requirements)
 - [After the run](#after-the-run)
+- [Knowledge graph](#knowledge-graph)
 - [Troubleshooting](#troubleshooting)
 - [Contents of this repo](#contents-of-this-repo)
 
@@ -78,7 +79,7 @@ requirements work. Any checks that depend on a missing tool are reported as `NOT
 | 3 | Backend Developer | `factory-backend-developer` | Implements `BE-n` in Kotlin/Spring Boot/Temporal with unit tests, OpenAPI spec, release notes, README and `AGENTS.md` updates; also does the backend fix rounds | code, `03-backend-dev.md` | Yes |
 | 3 | Frontend Developer | `factory-frontend-developer` | Implements `FE-n` in the Theia/React workbench (and other Continuum UIs) with specs and `data-testid`s; regenerates API clients from the committed spec | code, `04-frontend-dev.md` | Yes |
 | 4 | Backend System Tester | `factory-backend-system-tester` | Runs the changed services on a live stack and proves the `[system-api]` ACs with black-box k6 tests, incl. tenant isolation | k6 suites in `continuum-system-tests`, `05-backend-system-tests.md` | Tests only |
-| 4 | Frontend Tester | `factory-frontend-tester` | Drives the real workbench in Chromium (Puppeteer / Playwright over CDP) for the `[browser]` ACs, with screenshots | scenarios, `06-frontend-browser-tests.md`, `screenshots/` | Tests only |
+| 4 | Frontend Tester | `factory-frontend-tester` | Drives the real workbench in Chromium (Puppeteer / Playwright over CDP) for the `[browser]` ACs, with screenshots | scenarios, `06-frontend-browser-tests.md`, screenshots in git-ignored `.screenshots/` | Tests only |
 | 4 | Backend Expert | `factory-backend-expert` | Senior review: correctness, tenancy, API contract, Temporal determinism, dependencies, house rules; reproduces findings with probes | `07-backend-review.md` | No |
 | 4 | Frontend Expert | `factory-frontend-expert` | Senior review: workbench contracts, React/Theia patterns, accessibility, security, house rules | `08-frontend-review.md` | No |
 | 5 | Technical Writer | `factory-technical-writer` | Documents the verified feature on the `continuum-docs` site for the platform version it ships in (`docs/` = next; never snapshots a version) | pages in `continuum-docs`, `09-docs.md` | Docs only |
@@ -362,6 +363,13 @@ descriptions.
 
 ---
 
+## Knowledge graph
+
+`knowledge/` is a curated map of the Continuum workspace (repos, modules, data flow, loops and flow variables, workbench,
+dev-environment gotchas, feature history, plus a machine-readable `graph.json`). `CLAUDE.md` points every new chat
+at it, `factory/CONVENTIONS.md` makes every agent read it, and the factory updates it after each change. Start at
+[knowledge/README.md](knowledge/README.md).
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -384,6 +392,8 @@ descriptions.
 | `agents/factory-*.md` | the 10 factory roles (see [The ten roles](#the-ten-roles)) |
 | `agents/jsonforms-expert.md` | JSONForms schema/uischema specialist for `@ContinuumNode` dialogs |
 | `agents/workflow-builder.md` | builds `.cwf` workflows via the api-server MCP server |
+| `knowledge/` | curated Continuum knowledge graph (pages + `graph.json`), loaded via `CLAUDE.md` |
+| `CLAUDE.md` | session memory: points every new chat at `knowledge/` |
 | `factory/CONVENTIONS.md` | contract every factory agent reads first: artifacts, repo map, house rules |
 | `factory/SETUP.md` | environment setup from scratch |
 | `factory/repos.txt` | every Continuum repo, its URL and whether the factory needs it |

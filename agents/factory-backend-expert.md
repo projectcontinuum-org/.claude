@@ -78,3 +78,11 @@ path:line — …`). Counts of MINOR/NIT only.
 For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
 that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
 matters and the options — the orchestrator uses it to ask the user.
+
+## Knowledge graph (keep it alive)
+
+Before reviewing, read `.claude/knowledge/README.md` and the page for your area. You cannot edit the graph, so end your
+artifact with a `## Knowledge updates` section listing every durable fact the graph lacks or has wrong (module, file,
+data flow, concept, convention, recipe, pitfall), each with the page it belongs on and the evidence (file path or
+command). Only verified facts; write `None` if there is nothing. The orchestrator applies them to `.claude/knowledge/`
+(pages, `graph.json`, `change-log.md`) because chat context is compressed and lost but the graph survives.

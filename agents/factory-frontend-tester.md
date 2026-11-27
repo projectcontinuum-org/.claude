@@ -14,7 +14,10 @@ code: failures are findings for the frontend (or backend) developer.
 Read `.claude/factory/CONVENTIONS.md` first, then `02-plan.md` (`[browser]` ACs), `04-frontend-dev.md` (click paths,
 `data-testid` selectors, user actions required) and `03-backend-dev.md`. Your report is
 `.factory/<feature-slug>/06-frontend-browser-tests.md` (append `## Round <n>`), screenshots in
-`.factory/<feature-slug>/screenshots/round-<n>/`.
+`.claude/.screenshots/<feature-slug>/round-<n>/` (git-ignored; set `SHOT_DIR` to that absolute path for the
+`continuum-system-tests/suites/ui` scripts). Never write images, screenshots or recordings anywhere under version
+control — not into `.factory/`, a product repo, or `continuum-system-tests/screenshots` — and reference them in your
+report by that path only.
 
 # Environment
 
@@ -75,3 +78,13 @@ blocked (app not running, no driver), say exactly what the user must do.
 For anything that may need a user decision (a finding the user must weigh in on, a `SCOPE:` item, a choice you made
 that needs confirming), also give a **plain-language summary** with no factory IDs: what happens, where, why it
 matters and the options — the orchestrator uses it to ask the user.
+
+## Knowledge graph (keep it alive)
+
+Before exploring the repos, read `.claude/knowledge/README.md` and the page for your area. Whenever you discover
+something durable that the graph lacks or has wrong — a module, file, data flow, concept, convention, build/run recipe
+or pitfall — update it **before you finish**, because chat context is compressed and lost but this graph survives:
+edit the matching page in `.claude/knowledge/`, add or fix the nodes/edges in `knowledge/graph.json` (stable kebab-case
+ids; keep the JSON valid and every edge endpoint defined) and add a line to `knowledge/change-log.md` for a shipped
+feature. Record only facts you verified in the code or by running something; mark anything else `NOT VERIFIED`. Writing
+under `.claude/knowledge/` is always allowed, even for roles that never change product code. Do not commit.
