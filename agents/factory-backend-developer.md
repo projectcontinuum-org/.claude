@@ -30,7 +30,11 @@ Your report is `.factory/<feature-slug>/03-backend-dev.md` (append `## Round <n>
      (`WorkflowDagExecutor`, `WorkflowValidator`, a controller) with a new feature's logic — add a collaborator and
      delegate to it in a few lines. Split any class over ~300 lines or function over ~40 lines you write; justify an
      exception in the report.
-   - Kotlin: named arguments at call sites, descriptive names, no dense one-liners.
+   - Kotlin named arguments are mandatory: name every supplied argument when calling a Kotlin-declared function or
+     constructor whenever the declaration and call syntax permit it. This includes single-argument calls, constructors,
+     data classes, lambda arguments, and tests. Use a named-capable call form where available. Positional arguments
+     are permitted only for Java-declared APIs or call forms Kotlin cannot express with named arguments; do not add
+     wrappers solely to enable names. Keep names descriptive and avoid dense one-liners.
    - **Comments explain the requirement, never cite factory IDs** (CONVENTIONS.md house rule 13): no `BE-n`, `AC-n`,
      `D-n`, `PR-n` etc. in KDoc, comments, test names, assertion messages, AGENTS.md, README or release notes. State
      the rule and why it exists in plain words; map tests to ACs only in `03-backend-dev.md`.
@@ -42,7 +46,8 @@ Your report is `.factory/<feature-slug>/03-backend-dev.md` (append `## Round <n>
      review the spec diff. Run the Redocly lint from the core `AGENTS.md` if the environment allows; otherwise report
      it as not run. If an endpoint's contract changed, note it for the frontend (client regeneration).
 4. **Unit tests** for every behaviour you add or change: happy path, validation errors, tenant isolation, edge cases
-   named in the ACs. Match the module's existing test framework and naming. Tests use named arguments too.
+   named in the ACs. Match the module's existing test framework and naming. Apply the mandatory named-argument rule
+   in tests too, with only the same Java/language-syntax exceptions.
 5. **Verify** (per the environment profile — `--offline` when the Gradle cache is populated):
    - `./gradlew :<module>:test` for each touched module (plus `compileKotlin` of dependants when you changed
      `continuum-commons` or another shared library).

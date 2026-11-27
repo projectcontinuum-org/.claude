@@ -37,14 +37,18 @@ untracked files — read them in full). Read the surrounding code of every chang
 5. **Data**: Flyway/schema migrations backward compatible; Parquet/Avro schema compatibility; transactions; N+1 queries.
 6. **Node model** (feature repos): `@ContinuumNode`, ports never start with `$`, `.doc.md` present, properties schema
    valid and consistent with `execute()`.
-7. **Kotlin quality**: named arguments at call sites (tests too), descriptive names, idiomatic null-safety, no dead
-   code, follows the module's existing patterns.
+7. **Kotlin quality**: every argument at every call to a Kotlin-declared function or constructor must be named when
+   the declaration and call syntax permit it, including single-argument calls, constructors, data classes, lambda
+   arguments, and tests. Supported positional Kotlin calls violate the rule; prefer a named-capable call form where
+   available. Only Java-declared APIs and call forms that Kotlin cannot express with named arguments are exempt;
+   wrappers solely to enable names are not required. Also check descriptive names, idiomatic null-safety, no dead
+   code, and conformance to module patterns.
    **Modularity / SOLID** (CONVENTIONS.md house rule 12): single responsibility per class, interfaces and injection at
    seams, new behaviour in collaborators rather than in a growing existing class. A new or changed class doing several
    jobs, an existing large class absorbing a feature's logic, or new code past the size signals (~300-line class,
    ~40-line function, >5 dependencies) without a stated reason is a MAJOR finding; smaller design smells are MINOR.
 8. **Tests**: each behaviour has a unit test that would fail without the change; tenant isolation tested; no
-   assertion-free tests; tests use named arguments.
+   assertion-free tests; apply the mandatory named-argument rule to every test call wherever Kotlin permits it.
 9. **House rules**: release notes in the version being prepared (not a released one), README, AGENTS.md DOX pass.
    A factory ID (`BE-n`, `AC-n`, `D-n`, `PR-n`, ...) anywhere in code, comments, test names, docs or release notes is a
    MINOR finding per occurrence group (house rule 13): the comment must state the actual requirement instead.
