@@ -1,7 +1,7 @@
 # Local policy (this machine only)
 
 Copy this file to `local-policy.md` (gitignored) and keep only the rules that apply to this machine. Rules here
-override what the doctor detects; the doctor copies them into `.factory/environment.md`, so every agent sees them.
+override what the doctor detects; the doctor copies them into `.claude/.factory/environment.md`, so every agent sees them.
 Delete the file entirely on an unrestricted machine.
 
 Example rules for a machine on a corporate VPN that blocks the npm/yarn registries:

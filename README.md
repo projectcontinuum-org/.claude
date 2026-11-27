@@ -24,7 +24,7 @@ Clone this repo as `.claude/` in the **workspace root**, the folder that holds a
 mkdir continuum && cd continuum
 git clone https://github.com/projectcontinuum-org/.claude.git .claude
 .claude/factory/scripts/bootstrap.sh     # clone the required continuum-* repos, git lfs pull, write .mcp.json
-.claude/factory/scripts/doctor.sh        # check the machine, write .factory/environment.md
+.claude/factory/scripts/doctor.sh        # check the machine, write .claude/.factory/environment.md
 claude                                   # start Claude Code in the workspace root
 ```
 
@@ -91,8 +91,8 @@ api-server MCP server).
 
 ### Artifacts
 
-Everything for one feature lives in `.factory/<feature-slug>/` in the workspace root. It sits outside this repo
-and every product repo, so you can read any step's output while the run is going.
+Everything for one feature lives in `.claude/.factory/<task-id>/`, committed alongside the factory skills. A
+workspace-root `.factory` symlink keeps the short paths used in reports and commands working.
 
 | File | Written by | Content |
 |------|------------|---------|
@@ -110,7 +110,8 @@ and every product repo, so you can read any step's output while the run is going
 From the house rules in [factory/CONVENTIONS.md](factory/CONVENTIONS.md):
 - Agents read each repo's `AGENTS.md` before editing it.
 - Release notes, README and the OpenAPI spec are updated in the same change as the code.
-- Kotlin uses named arguments, tests included.
+- Kotlin requires named arguments for every supplied argument wherever the declaration and call syntax permit them,
+  including single-argument calls and tests; positional calls are limited to unavoidable Java/language constraints.
 - Code is modular and follows SOLID: small single-purpose classes and components, new behaviour in new collaborators
   instead of growing big classes. Reviewers treat a monolithic class or component as a MAJOR finding.
 - Code comments and docs explain the actual requirement; factory task IDs (`BE-3`, `AC-7`, ...) stay in `.factory/`.

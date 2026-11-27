@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Checks what this machine can do for the Continuum software factory and writes the environment profile
-# .factory/environment.md (workspace root). Every factory agent reads that profile before working.
+# .claude/.factory/environment.md. The workspace-root .factory symlink is kept for compatibility.
 # Read-only: installs nothing, starts nothing. Safe to re-run at any time (bash 3.2 compatible).
 #
-#   .claude/factory/scripts/doctor.sh            # print + write .factory/environment.md
+#   .claude/factory/scripts/doctor.sh            # print + write .claude/.factory/environment.md
 #   .claude/factory/scripts/doctor.sh --quiet    # write only
 set -uo pipefail
 
 FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE_ROOT="$(cd "$FACTORY_DIR/../.." && pwd)"
-OUT_DIR="$WORKSPACE_ROOT/.factory"
+OUT_DIR="$FACTORY_DIR/../.factory"
 OUT="$OUT_DIR/environment.md"
 POLICY="$FACTORY_DIR/local-policy.md"
 mkdir -p "$OUT_DIR"

@@ -1,0 +1,5 @@
+# Local dependency and browser-driver caches are not feature evidence.
+/tools/node_modules/
+/tools/.cache/
+
+# Keep the generated environment profile available in the artifact repository; it documents verification context.

@@ -1,20 +1,20 @@
 ---
 name: factory
-description: Run the Continuum software factory on a requirement — Product Manager → Planner → Backend/Frontend Developers → System/Browser Testers + Expert reviews → Technical Writer (continuum-docs) → Reporter, with user sign-off gates and fix loops. Use when the user types /factory <requirement>, asks to "run the factory", or wants a feature taken from requirement to tested, reviewed change. Also /factory setup (prepare a new machine), /factory status <slug>, /factory resume <slug>.
+description: Run the Continuum software factory on a requirement — Product Manager → Planner → Backend/Frontend Developers → System/Browser Testers + Expert reviews → Technical Writer (continuum-docs) → Reporter, with user sign-off gates and fix loops. Use when the user types /factory <requirement>, asks to "run the factory", or wants a feature taken from requirement to tested, reviewed change. Also /factory setup (prepare a new machine), /factory status <task-id>, /factory resume <task-id>.
 ---
 
 # Continuum software factory — orchestrator
 
 You (the main conversation) are the orchestrator. Subagents cannot ask the user anything or start other agents, so
 every question, gate and hand-off goes through you. Read `.claude/factory/CONVENTIONS.md` before starting; it defines
-the artifacts in `.factory/<slug>/` that the agents exchange.
+the artifacts in `.factory/<task-id>/` that the agents exchange.
 
 Agents (in `.claude/agents/`, launched with the Agent tool by `subagent_type`):
 `factory-product-manager`, `factory-planner`, `factory-backend-developer`, `factory-frontend-developer`,
 `factory-backend-system-tester`, `factory-frontend-tester`, `factory-backend-expert`, `factory-frontend-expert`,
 `factory-technical-writer`, `factory-reporter`.
 
-Every agent prompt you write contains: the feature slug, the artifact dir, the round number, the exact task IDs or
+Every agent prompt you write contains: the task ID, the artifact dir, the round number, the exact task IDs or
 findings to work on, and anything the user said that the artifacts don't capture yet. Keep prompts short — the
 artifacts carry the detail. Relay agent results to the user in a few lines; the user does not see agent output.
 
@@ -35,13 +35,21 @@ The user does not read the artifacts while answering, so factory IDs mean nothin
 ## Sub-commands
 
 - `/factory setup` → only Phase 0, then report what is ready.
-- `/factory status <slug>` → read `.factory/<slug>/state.md`, summarise.
-- `/factory resume <slug>` → read `state.md`, continue from the recorded phase.
+- `/factory status <task-id>` → read `.factory/<task-id>/state.md`, summarise.
+- `/factory resume <task-id>` → read `state.md`, continue from the recorded phase.
 - `/factory <requirement>` → full run below.
+
+The artifact key is normally a task ticket from the primary touched repository branch, such as `CONTNM-180`.
+`/factory status` and `/factory resume` accept that task ID; a kebab-case slug is a fallback for branches without a
+ticket key. Artifacts live in `.claude/.factory/`, which is part of the `.claude` Git repository; a workspace-root
+`.factory` symlink preserves the short path. Initialize it with
+`.claude/factory/scripts/init-artifacts.sh`, and after meaningful phases record only the task directory with
+`.claude/factory/scripts/record-artifacts.sh`. Never stage product repositories.
 
 ## Phase 0 — Environment (always first)
 
-1. Run `.claude/factory/scripts/doctor.sh --quiet` and read `.factory/environment.md`.
+1. Run `.claude/factory/scripts/init-artifacts.sh`, then run `.claude/factory/scripts/doctor.sh --quiet` and read
+   `.claude/.factory/environment.md`.
 2. Required repos ABSENT → run `.claude/factory/scripts/bootstrap.sh` (cloning is safe), re-run the doctor.
 3. Anything else under "Missing for a full pipeline" → show the list to the user with the SETUP.md section for each,
    and ask (AskUserQuestion) whether to: (a) let you run the agent-runnable setup steps now (build caches, browser
@@ -52,8 +60,12 @@ The user does not read the artifacts while answering, so factory IDs mean nothin
 
 ## Phase 1 — Requirements (Product Manager)
 
-1. Derive a short kebab-case slug; create `.factory/<slug>/state.md` (phase, task table, fix-round counters, and for
-   every repo you expect to touch: branch + `git status --short` count as the baseline).
+1. Determine the artifact key from the primary touched repository branch: extract a ticket key matching
+   `[A-Za-z][A-Za-z0-9]+-[0-9]+` from names such as `CONTNM-180` or `factory/CONTNM-180`; otherwise derive a short
+   kebab-case slug. Create `.claude/.factory/<task-id>/state.md` (the workspace-root `.factory/<task-id>` symlink path
+   is equivalent), with the phase, task table, fix-round counters, and for every repo
+   you expect to touch: branch + `git status --short` count as the baseline). Record the task ID and all source
+   branches in that state file.
 2. Launch `factory-product-manager` with the raw requirement.
 3. If it returns open questions: ask the user with AskUserQuestion (≤4 questions per call, the PM's recommended option
    first and marked "(Recommended)"), then re-launch the PM with the answers. Repeat until status is
@@ -65,8 +77,8 @@ The user does not read the artifacts while answering, so factory IDs mean nothin
 1. Launch `factory-planner`.
 2. **Gate 2:** show the task list, dependency graph, AC count and "not verifiable locally" items. Ask for approval
    or changes; re-launch the planner with the requested changes until approved.
-3. Ask whether to work on a new branch in each touched repo (suggest `factory/<slug>`); create branches only if the
-   user agrees. Never commit unless the user asks.
+3. Ask whether to work on a new branch in each touched repo (suggest `factory/<task-id>`); create branches only if the
+   user agrees. Never commit product repositories unless the user asks.
 
 ## Phase 3 — Build (Developers)
 
@@ -106,7 +118,8 @@ contributor-visible effect, and say so.
 ## Phase 6 — Report
 
 Launch `factory-reporter`. Show the user: status, overview, AC results, open items and the "User actions before merge"
-list, with a link to `.factory/<slug>/REPORT.md`. Update `state.md` to `DONE`.
+list, with a link to `.factory/<task-id>/REPORT.md`. Update `state.md` to `DONE`, then record the final artifact
+changes in the `.claude` repository.
 
 ## Rules
 

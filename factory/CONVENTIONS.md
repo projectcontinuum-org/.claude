@@ -43,8 +43,22 @@ start other agents: anything that needs the user goes back to the orchestrator i
 
 ## Artifact layout
 
-All hand-off documents for one feature live in `.factory/<feature-slug>/` at the workspace root (`.factory/` also
-holds `environment.md` and `tools/`; it is local working state, not committed anywhere):
+`.factory/` is stored at `.claude/.factory/` and is committed by the `.claude` Git repository. A workspace-root
+`.factory` symlink is created for compatibility. All hand-off documents for one feature live in
+`.claude/.factory/<task-id>/`; `environment.md` and `tools/` remain at its root. The preferred task ID is the ticket key from
+the primary touched repository's branch, for example `CONTNM-180`. A short kebab-case feature slug is used only when
+no ticket key is present. Branch names may include a prefix such as `factory/CONTNM-180`; the directory uses the
+ticket key without the prefix.
+
+When multiple repositories are touched, use the primary feature branch as the directory key and record every
+repository branch in `state.md`. Existing slug directories are legacy evidence and must not be silently renamed.
+
+The orchestrator initializes the artifact directory with `.claude/factory/scripts/init-artifacts.sh` and records
+artifact changes in the `.claude` repository with `.claude/factory/scripts/record-artifacts.sh <task-id> "<message>"`.
+Those commits are scoped to `.claude/.factory/<task-id>/`; product repositories are never staged or committed by
+these scripts.
+
+(`.factory/` also holds `environment.md` and `tools/`.)
 
 | File | Owner | Content |
 |------|-------|---------|
@@ -64,6 +78,8 @@ Rules for artifacts:
 - Only write your own file(s). Append a new `## Round <n>` section on re-runs instead of rewriting history.
 - Refer to tasks and criteria by ID (`BE-2`, `FE-1`, `AC-4`). Refer to code as `repo/path/File.kt:line`.
 - Write facts you verified. Mark anything you could not verify as `NOT VERIFIED: <reason>` — never imply it passed.
+- The first `state.md` section records the task ID, source branch for every touched repository, and the baseline
+  `git status --short` count. Each later phase appends progress; do not rewrite prior evidence.
 
 ## Repo map
 
@@ -95,8 +111,12 @@ backend task that updates the committed spec.
 3. **README with every module change**: the module's own README, otherwise the repo root README.
 4. **OpenAPI with every API change** in `continuum-platform-core`: inventory, `docs/api/CONVENTIONS.md`, annotations,
    regenerated committed spec, `OpenApiSpecTest` — per "API Documentation Contract" in its `AGENTS.md`.
-5. **Kotlin reads descriptively**: named arguments at call sites (constructors, data classes, 2+ argument functions),
-   tests included; descriptive names and explanatory locals over dense one-liners.
+5. **Kotlin named arguments are mandatory**: name every supplied argument at every call to a Kotlin-declared
+   function or constructor whenever the declaration and call syntax permit it. This includes single-argument calls,
+   constructors, data classes, lambda arguments and tests. A supported positional Kotlin call violates this rule;
+   use a named-capable call form where available. Positional arguments are permitted only when calling a Java-declared
+   API or when Kotlin syntax/declarations do not support named arguments. Do not add wrappers solely to enable names.
+   Also use descriptive names and explanatory locals instead of dense one-liners.
 6. **Network-dependent builds follow the environment profile.** Run `yarn install`/`yarn build` in
    `continuum-workbench` only when `node_modules` is absent, the npm/yarn registry is reachable and the local policy
    does not forbid it. A `package.json` dependency change needs a matching `yarn.lock` (CI runs `--frozen-lockfile`):

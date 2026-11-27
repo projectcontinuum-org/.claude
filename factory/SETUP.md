@@ -14,7 +14,7 @@ The factory is portable: `.claude/` at the workspace root is its own git repo (`
 mkdir continuum && cd continuum             # the workspace root (holds .claude/ and all repos side by side)
 git clone https://github.com/projectcontinuum-org/.claude.git .claude        # must be named .claude, directly in the workspace root
 .claude/factory/scripts/bootstrap.sh        # clone the required repos (+ git lfs pull), write .mcp.json
-.claude/factory/scripts/doctor.sh           # check tools, write .factory/environment.md
+.claude/factory/scripts/doctor.sh           # check tools, write .claude/.factory/environment.md
 ```
 
 Only on a restricted machine (VPN, blocked registries): `cp .claude/factory/local-policy.example.md
@@ -71,12 +71,12 @@ cd continuum-workbench && yarn install --frozen-lockfile && yarn build && cd ..
 
 ## 4. Browser tools for the frontend tester (agent may run, needs network once)
 
-The doctor looks for Puppeteer/Playwright in `.factory/tools/`, the global npm root, then the npx cache. Install into
+The doctor looks for Puppeteer/Playwright in `.claude/.factory/tools/`, the global npm root, then the npx cache. Install into
 the factory's own tools directory so nothing leaks into the repos:
 
 ```bash
-npm install --prefix .factory/tools puppeteer          # downloads a matching Chrome for Testing
-# or: npm install --prefix .factory/tools playwright && .factory/tools/node_modules/.bin/playwright install chromium
+npm install --prefix .claude/.factory/tools puppeteer  # downloads a matching Chrome for Testing
+# or: npm install --prefix .claude/.factory/tools playwright && .claude/.factory/tools/node_modules/.bin/playwright install chromium
 ```
 
 Scripts load it with `createRequire(import.meta.url)('<path from environment.md>')`.
