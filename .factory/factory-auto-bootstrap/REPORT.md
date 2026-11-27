@@ -45,12 +45,12 @@ None. Existing manual bootstrap remains available; optional repositories are sti
 - SCOPE items deferred: none.
 
 ## User actions before merge
-- Review the current `.claude` diff and uncommitted workspace state; commit/PR the intended `.claude` changes and this report when ready. No commits or pushes were made.
+- Review the current `.claude` implementation diff and uncommitted workspace state; commit/PR the intended implementation changes when ready. No implementation files were committed or pushed. The factory artifact directory was recorded separately in commit `98dbf01`.
 - If merge confidence requires live confirmation, run `/factory` in a genuinely fresh workspace and confirm required-only bootstrap, safe existing-repo handling, and doctor refresh.
 - Install Node.js/Yarn only if the relevant dependent checks are required, then run those checks and record their results.
 - No product repository changes, generated clients, yarn.lock updates, or OpenAPI lint actions are required.
 
 ## Discrepancies
-- The developer evidence names the bootstrap test as changed; actual `.claude` status shows it under untracked `factory/scripts/tests/`, so it exists but is not included in `git diff --stat`. The artifact directory is also untracked and likewise omitted from that stat.
-- Actual `.claude` status has six modified tracked files (`README.md`, `factory/CONVENTIONS.md`, `factory/SETUP.md`, `factory/scripts/bootstrap.sh`, `factory/scripts/doctor.sh`, `skills/factory/SKILL.md`) plus the untracked test and artifact directories. The tracked diff stat is 61 insertions and 28 deletions. This matches the reported change areas; no product repo was listed as touched or changed.
-- `state.md` records a baseline status count of 1; the current status lists 8 paths/groups. The artifacts do not identify the original baseline path, so the current uncommitted state cannot be attributed more precisely to pre-existing versus feature work. No commits or pushes were made.
+- The developer evidence names the bootstrap test as changed; actual `.claude` status shows it under untracked `factory/scripts/tests/`, so it exists but is not included in `git diff --stat`.
+- Actual `.claude` status has six modified tracked implementation files (`README.md`, `factory/CONVENTIONS.md`, `factory/SETUP.md`, `factory/scripts/bootstrap.sh`, `factory/scripts/doctor.sh`, `skills/factory/SKILL.md`) plus the untracked test directory. The tracked implementation diff stat is 61 insertions and 28 deletions. The artifact-only commit `98dbf01` contains the six files in this task's `.factory/factory-auto-bootstrap/` directory; it does not include implementation files.
+- `state.md` records a baseline status count of 1; the current implementation status lists 7 paths/groups. The artifacts do not identify the original baseline path, so the current uncommitted implementation state cannot be attributed more precisely to pre-existing versus feature work. No product repository changes were made.
