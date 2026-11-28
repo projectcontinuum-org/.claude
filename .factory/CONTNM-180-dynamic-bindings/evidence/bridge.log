@@ -1,0 +1,10 @@
+bash: cannot set terminal process group (2093134): Inappropriate ioctl for device
+bash: no job control in this shell
+kotlin-lsp-bridge  http://127.0.0.1:3005  run mwzhs5pn  backend pid 2092700  idle timeout 15 s
+PASS      lifecycle  no server process before the first editor connects  -- 0 processes under backend pid 2092700
+FAIL      suite  the suite ran to the end  -- Error: timed out after 90000 ms waiting for serverState ready (last messages: {"jsonrpc":"2.0","method":"continuum/serverState","params":{"state":"starting"}} | {"jsonrpc":"2.0","method":"continuum/serverState","params":{"state":"unavailable"}})
+    at Timeout._onTimeout (file:///home/maximus/Projects/Project-Continuum/continuum-system-tests/lib/lsp-session.mjs:96:16)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+1 passed, 1 failed, 0 skipped (NOT VERIFIED), 0 known gaps, 2 checks

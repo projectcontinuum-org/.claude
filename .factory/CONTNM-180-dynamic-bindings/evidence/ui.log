@@ -1,0 +1,153 @@
+bash: cannot set terminal process group (2094446): Inappropriate ioctl for device
+bash: no job control in this shell
+kotlin-lsp suite against http://127.0.0.1:3005; backend pid 2092700; screenshots /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots; workspace /tmp/systest-mwzhul5s-kotlin-lsp-Wegbsr
+
+=== completion ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-01-completion-not-ready.png
+FAIL  completion  completion: the Kotlin server becomes ready  -- chip ended as 'unavailable' (Kotlin language server unavailable) (waited at most 150000 ms for 'ready'); JVMs 1: bridge pid 2095414 256MB age 0s cwd /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/ws/kotlin-script
+ERRORS [completion.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [completion.cwf] 23: warn 2026-11-27T21:29:03.604Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:03.604Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:03.703Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:03.703Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:03.721Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:03.721Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:03.732Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:03.732Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- completion took 27s
+
+=== valid ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-02-valid-not-ready.png
+FAIL  valid  valid: the Kotlin server becomes ready  -- chip ended as 'unavailable' (Kotlin language server unavailable) (waited at most 150000 ms for 'ready'); JVMs 1: bridge pid 2096061 253MB age 0s cwd /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/ws/kotlin-script
+ERRORS [valid.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [valid.cwf] 23: warn 2026-11-27T21:29:30.265Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:30.265Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:30.358Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:30.358Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:30.372Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:30.372Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:30.384Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:30.384Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- valid took 27s
+
+=== diagnostics ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-03-diagnostics-not-ready.png
+FAIL  diagnostics  diagnostics: the Kotlin server becomes ready  -- chip ended as 'unavailable' (Kotlin language server unavailable) (waited at most 150000 ms for 'ready'); JVMs 1: bridge pid 2096772 253MB age 0s cwd /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/ws/kotlin-script
+ERRORS [diag.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [diag.cwf] 23: warn 2026-11-27T21:29:57.104Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:57.105Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:57.202Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:57.202Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:57.215Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:57.215Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:29:57.226Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:29:57.226Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- diagnostics took 27s
+
+=== hover ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-04-hover-not-ready.png
+FAIL  hover  hover: the Kotlin server becomes ready  -- chip ended as 'unavailable' (Kotlin language server unavailable) (waited at most 150000 ms for 'ready'); JVMs 1: bridge pid 2097449 264MB age 0s cwd /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/ws/kotlin-script
+ERRORS [hover.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [hover.cwf] 23: warn 2026-11-27T21:30:23.930Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:23.930Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:24.022Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:24.022Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:24.035Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:24.035Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:24.045Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:24.045Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- hover took 27s
+
+=== save ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-05-save-typed.png
+PASS  save  Save changes (clicked) then Ctrl+S stores exactly the editor text  -- editor "val a = row[\"a\"]?.toString()\nval b = a + flow.get(\"x\")\nflow.set(\"k\", b)"; stored "val a = row[\"a\"]?.toString()\nval b = a + flow.get(\"x\")\nflow.set(\"k\", b)"; chip at typing time: unavailable
+PASS  save  the stored script has no hidden prelude/wrapper  -- stored "val a = row[\"a\"]?.toString()\nval b = a + flow.get(\"x\")\nflow.set(\"k\", b)"
+PASS  save  the stored script equals the text that was typed  -- identical
+ERRORS [save.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [save.cwf] 23: warn 2026-11-27T21:30:50.701Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:50.701Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:50.795Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:50.795Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:50.808Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:50.808Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:30:50.809Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:30:50.809Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- save took 34s
+
+=== no-context ===
+PASS  no-context  a Script node that reports no context gets a plain code editor: no chip, footer, connection, provider or marker  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+PASS  no-context  typing in it works and gets no language-server marker  -- markers 0
+PASS  no-context  saving stores exactly the typed text  -- "val x: Int = \"a\""
+ERRORS [no-context.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [no-context.cwf] 23: warn 2026-11-27T21:31:24.223Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:24.223Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:24.318Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:24.318Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:24.332Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:24.332Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:24.343Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:24.343Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- no-context took 28s
+
+=== bad-context ===
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-06-bad-context-0.png
+PASS  bad-context  a binding type that is not text: the editor is plain and the dialog still opens  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-07-bad-context-1.png
+PASS  bad-context  a binding name that is not an identifier: the editor is plain and the dialog still opens  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-08-bad-context-2.png
+PASS  bad-context  a package line in the declarations: the editor is plain and the dialog still opens  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-09-bad-context-3.png
+PASS  bad-context  declarations over 64 KB: the editor is plain and the dialog still opens  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-10-bad-context-4.png
+PASS  bad-context  a context that is not an object: the editor is plain and the dialog still opens  -- {"editors":1,"footers":0,"chips":0,"intel":{"connections":0,"hasKotlin":false},"providers":0,"markers":0}
+ERRORS [bad-context.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [bad-context.cwf] 23: warn 2026-11-27T21:31:52.311Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:52.311Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:52.407Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:52.407Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:52.421Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:52.421Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:31:52.432Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:31:52.432Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- bad-context took 56s
+
+=== twocontexts ===
+JVMS [twocontexts: cold start (all Kotlin servers ended: none was running)] 0
+SHOT /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/shots/klsp-11-twocontexts (dialog A)-not-ready.png
+FAIL  twocontexts  twocontexts (dialog A): the Kotlin server becomes ready  -- chip ended as 'unavailable' (Kotlin language server unavailable) (waited at most 150000 ms for 'ready'); JVMs 1: bridge pid 2099715 237MB age 0s cwd /home/maximus/Projects/Project-Continuum/.claude/.factory/CONTNM-180-dynamic-bindings/scratch/ws/kotlin-script
+ERRORS [twocontexts.cwf] 0 not matching the known baseline noise
+CONSOLE LOGS [twocontexts.cwf] 23: warn 2026-11-27T21:32:50.965Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:32:50.965Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:32:51.059Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:32:51.059Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:32:51.072Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:32:51.072Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to || warn 2026-11-27T21:32:51.083Z root WARN MUI: Can't create `palette.defaultChannel` because `palette.default` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you nee || warn 2026-11-27T21:32:51.083Z root WARN MUI: Can't create `palette.paperChannel` because `palette.paper` is not one of these formats: #nnn, #nnnnnn, rgb(), rgba(), hsl(), hsla(), color().
+To suppress this warning, you need to
+--- twocontexts took 29s
+
+=== SUMMARY ===
+FAIL  completion  completion: the Kotlin server becomes ready
+FAIL  valid  valid: the Kotlin server becomes ready
+FAIL  diagnostics  diagnostics: the Kotlin server becomes ready
+FAIL  hover  hover: the Kotlin server becomes ready
+PASS  save  Save changes (clicked) then Ctrl+S stores exactly the editor text
+PASS  save  the stored script has no hidden prelude/wrapper
+PASS  save  the stored script equals the text that was typed
+PASS  no-context  a Script node that reports no context gets a plain code editor: no chip, footer, connection, provider or marker
+PASS  no-context  typing in it works and gets no language-server marker
+PASS  no-context  saving stores exactly the typed text
+PASS  bad-context  a binding type that is not text: the editor is plain and the dialog still opens
+PASS  bad-context  a binding name that is not an identifier: the editor is plain and the dialog still opens
+PASS  bad-context  a package line in the declarations: the editor is plain and the dialog still opens
+PASS  bad-context  declarations over 64 KB: the editor is plain and the dialog still opens
+PASS  bad-context  a context that is not an object: the editor is plain and the dialog still opens
+FAIL  twocontexts  twocontexts (dialog A): the Kotlin server becomes ready

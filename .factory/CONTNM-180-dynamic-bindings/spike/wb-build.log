@@ -1,0 +1,141 @@
+bash: cannot set terminal process group (2090811): Inappropriate ioctl for device
+bash: no job control in this shell
+yarn run v1.22.21
+$ turbo build --filter=@continuum/workbench
+• Packages in scope: @continuum/workbench
+• Running build in 1 packages
+• Remote caching disabled
+@continuum/workflow-builder-extension:build: cache hit, replaying logs 10c32e6a2ae1c450
+@continuum/workflow-builder-extension:build: [2K[1G[33mwarning[39m package.json: No license field
+@continuum/workflow-builder-extension:build: [2K[1G[2m$ tsc[22m
+@continuum/language-server-extension:build: cache miss, executing d65a9dea5d704b17
+@continuum/core:build: cache hit, replaying logs 55168703a4b3a29e
+@continuum/core:build: $ tsc
+@continuum/language-server-extension:build: warning package.json: No license field
+@continuum/language-server-extension:build: $ tsc
+@continuum/workflow-editor-extension:build: cache miss, executing 93b7690214642a8a
+@continuum/workflow-editor-extension:build: warning package.json: No license field
+@continuum/workflow-editor-extension:build: $ tsc && yarn run copy-files
+@continuum/workflow-editor-extension:build: warning package.json: No license field
+@continuum/workflow-editor-extension:build: $ copyfiles -u 1 src/**/*.html src/**/*.css lib/
+@continuum/workbench:build: cache miss, executing 7e27a81c4b4f1e17
+@continuum/workbench:build: $ theia build --mode=development
+@continuum/workbench:build: Could not resolve optional peer dependency '@theia/electron'. Skipping...
+@continuum/workbench:build: assets by status 2.8 MiB [cached] 60 assets
+@continuum/workbench:build: assets by path *.js 79.2 MiB
+@continuum/workbench:build:   assets by chunk 45.2 MiB (id hint: vendors)
+@continuum/workbench:build:     assets by status 822 KiB [emitted] 6 assets
+@continuum/workbench:build:     + 109 assets
+@continuum/workbench:build:   + 41 assets
+@continuum/workbench:build: assets by path ../ 66.9 KiB
+@continuum/workbench:build:   assets by path ../backend/shell-integrations/ 26.2 KiB 9 assets
+@continuum/workbench:build:   assets by path ../webview/pre/ 40.7 KiB
+@continuum/workbench:build:     assets by path ../webview/pre/*.js 40 KiB 3 assets
+@continuum/workbench:build:     assets by path ../webview/pre/*.html 726 bytes 2 assets
+@continuum/workbench:build: asset Logo.png 109 KiB [compared for emit] [from: resources/Logo.png] [copied]
+@continuum/workbench:build: asset context/plugin-vscode-init-fe.js 1.52 KiB [compared for emit] [from: ../node_modules/@theia/plugin-ext-vscode/lib/node/context/plugin-vscode-init-fe.js] [copied] 1 related asset
+@continuum/workbench:build: asset secondary-window.html 514 bytes [compared for emit] [from: src-gen/frontend/secondary-window.html] [copied] 1 related asset
+@continuum/workbench:build: asset favicon.svg 308 bytes [compared for emit] [from: resources/favicon.svg] [copied] 1 related asset
+@continuum/workbench:build: orphan modules 1.39 MiB [orphan] 811 modules
+@continuum/workbench:build: runtime modules 10.8 KiB 20 modules
+@continuum/workbench:build: modules by path ../node_modules/ 58.4 MiB (javascript) 2.8 MiB (asset) 8502 modules
+@continuum/workbench:build: modules by path ../workflow-editor-extension/lib/ 994 KiB 190 modules
+@continuum/workbench:build: modules by path ../language-server-extension/lib/ 77.6 KiB 24 modules
+@continuum/workbench:build: modules by path ../workflow-builder-extension/lib/ 25.4 KiB
+@continuum/workbench:build:   modules by path ../workflow-builder-extension/lib/browser/*.js 21.7 KiB 5 modules
+@continuum/workbench:build:   modules by path ../workflow-builder-extension/lib/common/*.js 3.72 KiB 2 modules
+@continuum/workbench:build: modules by path ../continuum-core/dist/ 2.89 KiB
+@continuum/workbench:build:   modules by path ../continuum-core/dist/types/*.js 1.41 KiB 2 modules
+@continuum/workbench:build:   + 2 modules
+@continuum/workbench:build: modules by mime type image/svg+xml 3.17 KiB
+@continuum/workbench:build:   data:image/svg+xml;base64,PHN2ZyB3aWR0aD0i.. 1.59 KiB [built] [code generated]
+@continuum/workbench:build:   data:image/svg+xml;base64,PHN2ZyB3aWR0aD0i.. 1.59 KiB [built] [code generated]
+@continuum/workbench:build: + 6 modules
+@continuum/workbench:build:   
+@continuum/workbench:build: webpack 5.109.2 compiled successfully in 14453 ms
+@continuum/workbench:build: 
+@continuum/workbench:build: asset editor.worker.js 1.31 MiB [compared for emit] (name: editor.worker) 1 related asset
+@continuum/workbench:build: runtime modules 1.07 KiB 3 modules
+@continuum/workbench:build: cacheable modules 1.1 MiB
+@continuum/workbench:build:   modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/editor/common/ 430 KiB 45 modules
+@continuum/workbench:build:   modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/ 690 KiB
+@continuum/workbench:build:     modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/*.js 615 KiB 37 modules
+@continuum/workbench:build:     modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/worker/*.js 16.4 KiB
+@continuum/workbench:build:       ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/worker/webWork...(truncated) 1.08 KiB [built] [code generated]
+@continuum/workbench:build:       ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/worker/webWorker.js 15.3 KiB [built] [code generated]
+@continuum/workbench:build:     modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/diff/*.js 58.3 KiB
+@continuum/workbench:build:       ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/diff/diff.js 57 KiB [built] [code generated]
+@continuum/workbench:build:       ../node_modules/@theia/monaco-editor-core/esm/vs/base/common/diff/diffChange.js 1.32 KiB [built] [code generated]
+@continuum/workbench:build:   modules by path ../node_modules/@theia/monaco-editor-core/esm/vs/*.js 3.58 KiB
+@continuum/workbench:build:     ../node_modules/@theia/monaco-editor-core/esm/vs/nls.js 2.74 KiB [built] [code generated]
+@continuum/workbench:build:     ../node_modules/@theia/monaco-editor-core/esm/vs/nls.messages.js 854 bytes [built] [code generated]
+@continuum/workbench:build: webpack 5.109.2 compiled successfully in 454 ms
+@continuum/workbench:build: 
+@continuum/workbench:build: assets by status 2.01 MiB [cached] 15 assets
+@continuum/workbench:build: assets by status 40.1 MiB [compared for emit]
+@continuum/workbench:build:   assets by chunk 6.14 MiB (id hint: vendors)
+@continuum/workbench:build:     assets by status 498 KiB [emitted]
+@continuum/workbench:build:       asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_blockDiagram-VBNYF7ZC_mjs.js 165 KiB [emitted] [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:       asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_chunk-JQJVKLGR_mjs.js 125 KiB [emitted] [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:       asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_vennDiagram-T6HMQDX7_mjs.js 118 KiB [emitted] [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:       asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_erDiagram-JOGREHBK_mjs.js 63 KiB [emitted] [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:       asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_chunk-RYQCIY6F_mjs.js 27.1 KiB [emitted] [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:     + 33 assets
+@continuum/workbench:build:   assets by chunk 33.9 MiB (name: secondary-window)
+@continuum/workbench:build:     asset secondary-window.js 33.2 MiB [compared for emit] (name: secondary-window) 1 related asset
+@continuum/workbench:build:     asset secondary-window.css 642 KiB [compared for emit] (name: secondary-window) 1 related asset
+@continuum/workbench:build:   + 27 assets
+@continuum/workbench:build: asset vendors-node_modules_mermaid_dist_chunks_mermaid_core_swimlanes-SLNWSIFB_mjs.js 324 KiB [emitted] (id hint: vendors) 1 related asset
+@continuum/workbench:build: Entrypoint secondary-window 33.9 MiB (33.3 MiB) = secondary-window.css 642 KiB secondary-window.js 33.2 MiB 17 auxiliary assets
+@continuum/workbench:build: orphan modules 2.03 MiB (javascript) 1.55 MiB (asset) 1.48 KiB (runtime) [orphan] 669 modules
+@continuum/workbench:build: runtime modules 169 KiB 502 modules
+@continuum/workbench:build: javascript modules 31 MiB
+@continuum/workbench:build:   modules by path ../node_modules/ 31 MiB 4227 modules
+@continuum/workbench:build:   ./src-gen/frontend/secondary-index.js 902 bytes [built] [code generated]
+@continuum/workbench:build:   stream (ignored) 15 bytes [optional] [built] [code generated]
+@continuum/workbench:build: css modules 577 KiB 159 modules
+@continuum/workbench:build: json modules 2.5 MiB
+@continuum/workbench:build:   modules by path ../node_modules/@theia/core/ 2.38 MiB 52 modules
+@continuum/workbench:build:   modules by path ../node_modules/@theia/monaco/ 36.2 KiB 10 modules
+@continuum/workbench:build:   modules by path ../node_modules/iconv-lite/ 86.7 KiB 8 modules
+@continuum/workbench:build:   ../node_modules/@theia/ai-core/data/prompttemplate.tmLanguage.json 1.53 KiB [built] [code generated]
+@continuum/workbench:build: asset modules 463 KiB (asset) 84 bytes (javascript)
+@continuum/workbench:build:   ../node_modules/vscode-oniguruma/release/onig.wasm 462 KiB (asset) 42 bytes (javascript) [built] [code generated]
+@continuum/workbench:build:   ../node_modules/@theia/monaco-editor-core/esm/vs/editor/common/services/editorWe...(truncated) 590 bytes (asset) 42 bytes (javascript) [built] [code generated]
+@continuum/workbench:build:   
+@continuum/workbench:build: webpack 5.109.2 compiled successfully in 7478 ms
+@continuum/workbench:build: 
+@continuum/workbench:build: assets by path *.js 18.4 MiB
+@continuum/workbench:build:   assets by chunk 18.2 MiB (id hint: vendors)
+@continuum/workbench:build:     asset vendors-node_modules_drivelist_build_Release_drivelist_node-node_modules_stroncium_procfs_lib-bced06.js 9.24 MiB [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:     asset vendors-node_modules_theia_core_lib_common_index_js-node_modules_theia_core_lib_common_menu_i-62760b.js 3.61 MiB [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:     asset vendors-node_modules_theia_core_lib_common_collections_js-node_modules_theia_core_lib_common_-888938.js 2.47 MiB [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:     asset vendors-node_modules_theia_plugin-ext_lib_hosted_node_plugin-host_js.js 2.22 MiB [compared for emit] (id hint: vendors) 1 related asset
+@continuum/workbench:build:     + 5 assets
+@continuum/workbench:build:   + 7 assets
+@continuum/workbench:build: assets by path native/*.node 661 KiB
+@continuum/workbench:build:   asset native/watcher.node 511 KiB [compared for emit] (auxiliary id hint: vendors)
+@continuum/workbench:build:   asset native/keytar.node 75.2 KiB [compared for emit] (auxiliary id hint: vendors)
+@continuum/workbench:build:   asset native/drivelist.node 74.6 KiB [compared for emit] (auxiliary id hint: vendors)
+@continuum/workbench:build: asset worker/conoutSocketWorker.js 3.71 KiB [compared for emit] (name: worker/conoutSocketWorker) 1 related asset
+@continuum/workbench:build: runtime modules 26.6 KiB 56 modules
+@continuum/workbench:build: modules by path ../node_modules/ 16.4 MiB
+@continuum/workbench:build:   javascript modules 12.1 MiB 2018 modules
+@continuum/workbench:build:   json modules 4.35 MiB 43 modules
+@continuum/workbench:build: modules by path ../language-server-extension/lib/ 106 KiB
+@continuum/workbench:build:   modules by path ../language-server-extension/lib/node/*.js 76.8 KiB 21 modules
+@continuum/workbench:build:   modules by path ../language-server-extension/lib/kotlin/*.js 10.5 KiB 3 modules
+@continuum/workbench:build:   modules by path ../language-server-extension/lib/node/kotlin/*.js 7.09 KiB 2 modules
+@continuum/workbench:build:   modules by path ../language-server-extension/lib/common/*.js 11.7 KiB 2 modules
+@continuum/workbench:build: modules by path ./ 9.96 KiB
+@continuum/workbench:build:   modules by path ./src-gen/backend/*.js 9.57 KiB 2 modules
+@continuum/workbench:build:   modules by path ./lib/backend/native-webpack-plugin/*.js 400 bytes 2 modules
+@continuum/workbench:build: + 61 modules
+@continuum/workbench:build: webpack 5.109.2 compiled successfully in 5512 ms
+@continuum/workbench:build: 
+
+ Tasks:    5 successful, 5 total
+Cached:    2 cached, 5 total
+  Time:    20.702s 
+
+Done in 21.37s.

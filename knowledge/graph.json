@@ -323,6 +323,12 @@
       "type": "documentation",
       "label": "Continuum docs for Kotlin Script language intelligence and workbench resources",
       "doc": "Next-version docs added in continuum-docs: feature-nodes/base-analytics.md, deployment/workbench-resources.md, and architecture/language-intelligence.md. npm run build passed."
+    },
+    {
+      "id": "context-documents",
+      "type": "module",
+      "label": "ContextDocuments (language-server-extension/browser)",
+      "doc": "workbench.md"
     }
   ],
   "edges": [
@@ -681,6 +687,18 @@
       "to": "workbench-image-baseline-tag-pitfall",
       "type": "has-pitfall",
       "via": "BASELINE_IMAGE must be a pre-feature release; hasKotlinSupport guard"
+    },
+    {
+      "from": "language-server-extension",
+      "to": "context-documents",
+      "type": "contains",
+      "via": "hidden per-context documents, barrier before script open"
+    },
+    {
+      "from": "use-language-intelligence",
+      "to": "language-server-extension",
+      "type": "calls",
+      "via": "attach(model, language, registrationId, scriptContext)"
     }
   ]
 }

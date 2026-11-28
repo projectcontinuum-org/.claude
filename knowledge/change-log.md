@@ -58,3 +58,6 @@ Open gaps: workbench condition editor/`FlowVariables.ts` unaware of `iteration`;
 - The docs-next pages for Script editing, workbench resources and language-intelligence architecture were added and
   built successfully. The system-test helper suite has 171 passing tests; the language-server extension has 228.
 
+- CONTNM-180 dynamic bindings: Kotlin editor names now come from `options.scriptContext` (context documents per connection, namespace package, barrier before the script opens); workflow-editor-extension forwards the context opaque to `attach`. Spike: `.factory/CONTNM-180-dynamic-bindings/spike-context-documents.md`.
+- CONTNM-180 dynamic bindings (system tests): `continuum-system-tests/lib/kotlin-script.mjs` builds the reported context from the real `ScriptFlowVariables.kt` (FEATURE_BASE_DIR); bridge group `context`, UI scenarios `no-context`/`bad-context`/`twocontexts`; the bridge suite must open and acknowledge the context document before any script.
+- CONTNM-180 fix round: the language-server readiness probe plans a document with NO context; a registration's `plan` must tolerate an undefined context (a fake registration hid this). Verified live: bridge 41/41, UI scenarios pass; a workflow shows one node dialog at a time, so two-dialog UI tests need two editor tabs.
